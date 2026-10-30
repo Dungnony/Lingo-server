@@ -16,7 +16,7 @@ CI/CD (`.github/workflows/deploy.yml`) chỉ `git reset --hard` + build + `pm2 r
 tiến trình với PM2. Các bước dưới đây làm đúng 1 lần cho một VPS mới.
 
 ```bash
-git clone https://github.com/Dungnony/Lingo-sever.git <VPS_APP_PATH>
+git clone https://github.com/Dungnony/Lingo-server.git <VPS_APP_PATH>
 cd <VPS_APP_PATH>
 # <VPS_APP_PATH> phải khớp chính xác secret VPS_APP_PATH trên GitHub,
 # vì mỗi lần deploy sau CI sẽ `cd` vào đúng đường dẫn đó.
