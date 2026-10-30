@@ -1,0 +1,1083 @@
+// Lingo — lược đồ dữ liệu (PostgreSQL).
+// Web học tiếng Anh theo 6 cấp độ: Beginner → Advanced.
+// Nhóm bảng: Auth/User · Từ vựng · Spaced Repetition · Tiến độ · Động lực (gamification).
+
+// moduleFormat cjs: the NestJS app compiles to CommonJS. Bare relative imports (no
+// ".js" suffix) so ts-jest and tsx resolve the generated .ts files without a module
+// name mapper. The connection URL lives in prisma.config.ts (CLI) and PrismaService
+// (runtime, via the pg driver adapter).
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "cjs"
+  importFileExtension = ""
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ===================================================================
+//  ENUM
+// ===================================================================
+
+enum AuthProvider {
+  GOOGLE
+  // chừa: FACEBOOK, APPLE
+}
+
+enum VerificationTokenType {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+}
+
+enum WordPos {
+  NOUN
+  VERB
+  ADJECTIVE
+  ADVERB
+  PRONOUN
+  NUMERAL
+  CONJUNCTION
+  PREPOSITION
+  ARTICLE
+  DETERMINER
+  INTERJECTION
+  PHRASAL_VERB
+  IDIOM
+  PHRASE
+  EXPRESSION
+  OTHER
+}
+
+/// Trạng thái ghi nhớ của 1 thẻ theo từng user (SM-2 / FSRS dùng chung).
+enum SrsState {
+  NEW
+  LEARNING
+  REVIEW
+  RELEARNING
+}
+
+/// 4 nút đánh giá khi ôn (map sang chất lượng nhớ tùy thuật toán).
+enum ReviewRating {
+  AGAIN
+  HARD
+  GOOD
+  EASY
+}
+
+enum ReviewType {
+  LEARN
+  REVIEW
+  RELEARN
+  CRAM
+  QUIZ
+}
+
+enum GoalType {
+  WORDS
+  MINUTES
+}
+
+enum AchievementCategory {
+  STREAK
+  LEVEL
+  VOLUME
+  ACCURACY
+  MILESTONE
+}
+
+enum StudySource {
+  REVIEW
+  LEARN
+  QUIZ
+}
+
+enum VideoKind {
+  PODCAST
+  STORY
+  SONG
+  DIALOGUE
+  LESSON
+  NEWS
+  CLIP
+  OTHER
+}
+
+// ===================================================================
+//  NHÓM AUTH / USER
+// ===================================================================
+
+model User {
+  id              String    @id @default(uuid()) @db.Uuid
+  email           String    @unique
+  emailVerifiedAt DateTime?
+  /// null nếu user chỉ đăng nhập bằng Google
+  passwordHash    String?
+  displayName     String
+  avatarUrl       String?
+  /// Tên timezone IANA (vd "Asia/Ho_Chi_Minh") — KHÔNG lưu offset, để xử lý đúng DST.
+  timezone        String    @default("Asia/Ho_Chi_Minh")
+  locale          String    @default("vi")
+  role            String    @default("user") // user | admin | translator
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  lastActiveAt    DateTime?
+
+  accounts            Account[]
+  refreshTokens       RefreshToken[]
+  settings            UserSettings?
+  wordProgress        UserWordProgress[]
+  reviewLogs          ReviewLog[]
+  studySessions       StudySession[]
+  dailyActivity       UserDailyActivity[]
+  streak              UserStreak?
+  achievements        UserAchievement[]
+  levelProgress       UserLevelProgress[]
+  lessonProgress      UserLessonProgress[]
+  quizAttempts        QuizAttempt[]
+  videos              Video[]
+  videoProgress       UserVideoProgress[]
+  videoComments       VideoComment[]
+  videoLikes          VideoLike[]
+  examAttempts        ExamAttempt[]
+  pushSubscriptions   PushSubscription[]
+  notifications       Notification[]       @relation("NotificationRecipient")
+  notificationsCaused Notification[]       @relation("NotificationActor")
+  practiceAttempts    PracticeAttempt[]
+  following           Follow[]             @relation("Follower")
+  followers           Follow[]             @relation("Following")
+  onboarding          OnboardingProfile?
+  chatSessions        ChatSession[]
+  conversationsAsA    Conversation[]       @relation("ConversationUserA")
+  conversationsAsB    Conversation[]       @relation("ConversationUserB")
+  sentDirectMessages  DirectMessage[]
+  referralsSent       Referral[]           @relation("ReferralsSent")
+  referredBy          Referral?            @relation("ReferralsReceived")
+  minigameSessions    MinigameSession[]
+  wallet              UserWallet?
+  coinTransactions    CoinTransaction[]
+  rating              UserRating?
+  duelsAsA            DuelMatch[]          @relation("DuelPlayerA")
+  duelsAsB            DuelMatch[]          @relation("DuelPlayerB")
+  duelSeasonResults   DuelSeasonResult[]
+  savedWords          SavedWord[]
+  assistantUsage      AssistantDailyUsage[]
+  wordReports         WordReport[]
+  avatar              UserAvatar?
+
+  @@index([lastActiveAt])
+}
+
+/// Uploaded avatar image. Stored in the database rather than on disk so it survives hosts with an
+/// ephemeral filesystem; `User.avatarUrl` points at `/media/avatars/<userId>`.
+model UserAvatar {
+  userId    String   @id @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mimeType  String
+  data      Bytes
+  updatedAt DateTime @updatedAt
+}
+
+/// Danh tính OAuth (kiểu Auth.js). Mỗi provider + tài khoản ngoài = 1 dòng.
+model Account {
+  id                String       @id @default(uuid()) @db.Uuid
+  userId            String       @db.Uuid
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          AuthProvider
+  providerAccountId String // vd Google `sub`
+  accessToken       String?
+  refreshToken      String?
+  expiresAt         DateTime?
+  scope             String?
+  idToken           String?
+  tokenType         String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+/// Refresh token — xoay vòng, chỉ lưu HASH. Phát hiện reuse theo familyId.
+model RefreshToken {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @db.Uuid
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash    String    @unique
+  familyId     String    @db.Uuid
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?   @db.Uuid
+  userAgent    String?
+  ip           String?
+  createdAt    DateTime  @default(now())
+
+  @@index([userId])
+  @@index([familyId])
+}
+
+/// Token xác minh email + reset mật khẩu. Chỉ lưu HASH.
+model VerificationToken {
+  id         String                @id @default(uuid()) @db.Uuid
+  identifier String // email
+  tokenHash  String                @unique
+  type       VerificationTokenType
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime              @default(now())
+
+  @@index([identifier])
+}
+
+/// Cài đặt học của user (1-1 User).
+model UserSettings {
+  userId              String   @id @db.Uuid
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dailyGoalType       GoalType @default(WORDS)
+  dailyGoalValue      Int      @default(20)
+  newCardsPerDay      Int      @default(10)
+  maxReviewsPerDay    Int?
+  srsScheduler        String   @default("sm2") // sm2 | fsrs
+  targetRetention     Float    @default(0.9) // chỉ dùng cho FSRS
+  reminderHour        Int? // 0-23, giờ địa phương (cho push)
+  weeklyDigestEnabled Boolean  @default(true) // email tổng kết tuần
+  /// Hiện phiên âm IPA trên từ vựng
+  showPhonetics       Boolean  @default(true)
+  /// Hiện nghĩa tiếng Việt
+  showVietnamese      Boolean  @default(true)
+  updatedAt           DateTime @updatedAt
+}
+
+// ===================================================================
+//  NHÓM TỪ VỰNG
+// ===================================================================
+
+/// Bảng tra tĩnh 6 cấp độ tiếng Anh (Beginner → Advanced).
+model EnglishLevel {
+  level        Int    @id // 1-6
+  nameVi       String // "Beginner", "Elementary"...
+  nameEn       String // "Beginner", "Elementary"...
+  totalWords   Int    @default(0)
+  totalGrammar Int    @default(0)
+  description  String @default("")
+
+  words         Word[]
+  lessons       Lesson[]
+  levelProgress UserLevelProgress[]
+}
+
+/// Bài học — chia nhỏ từ vựng mỗi cấp thành lộ trình tuyến tính,
+/// sắp theo chủ đề. Seed tĩnh.
+model Lesson {
+  id         String       @id @default(uuid()) @db.Uuid
+  level      Int
+  levelRef   EnglishLevel @relation(fields: [level], references: [level])
+  orderIndex Int // 1..N trong cấp
+  title      String // vd "Greetings", "Family"
+  wordCount  Int          @default(0)
+
+  words          Word[]
+  lessonProgress UserLessonProgress[]
+
+  @@unique([level, orderIndex])
+  @@index([level])
+}
+
+model Word {
+  id            String   @id @default(uuid()) @db.Uuid
+  /// Từ tiếng Anh
+  word          String
+  /// Phiên âm IPA (vd /həˈloʊ/)
+  pronunciation String?
+  /// Cấp độ (1-6)
+  level         Int
+  levelRef      EnglishLevel @relation(fields: [level], references: [level])
+  pos           WordPos[]
+  frequencyRank Int?
+  /// Nghĩa tiếng Việt
+  meaningVi     String?
+  /// Nghĩa tiếng Anh (định nghĩa)
+  meaningEn     String?
+  audioUrl      String? // /media/audio/en-<từ>.mp3
+  /// Nguồn gốc dữ liệu
+  source        String?
+  /// Bài học chứa từ này
+  lessonId      String?  @db.Uuid
+  lesson        Lesson?  @relation(fields: [lessonId], references: [id], onDelete: SetNull)
+  lessonOrder   Int?
+  /// Lúc admin xác nhận nội dung (do AI sinh) là đúng; null = chưa duyệt.
+  /// Bị người học báo lỗi thì trở lại null.
+  reviewedAt    DateTime?
+  /// Lúc script `data:check-words` (Gemini soát chéo) đã kiểm tra từ này.
+  aiCheckedAt   DateTime?
+  /// Lý do AI nghi ngờ nội dung sai (null = AI thấy ổn / chưa kiểm tra).
+  /// Admin duyệt hoặc sửa từ thì xoá.
+  aiFlag        String?   @db.VarChar(300)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  examples         WordExample[]
+  progress         UserWordProgress[]
+  practiceAttempts PracticeAttempt[]
+  savedBy          SavedWord[]
+  reports          WordReport[]
+
+  @@unique([word, level])
+  @@index([level, frequencyRank])
+  @@index([lessonId, lessonOrder])
+  @@index([word])
+}
+
+enum WordReportReason {
+  MEANING
+  PRONUNCIATION
+  EXAMPLE
+  OTHER
+}
+
+/// Người học báo nội dung một từ bị sai. Mỗi người 1 báo cáo / từ: gửi lại
+/// thì cập nhật và mở lại. Admin sửa hoặc duyệt từ thì đóng (resolvedAt).
+model WordReport {
+  id         String           @id @default(uuid()) @db.Uuid
+  wordId     String           @db.Uuid
+  word       Word             @relation(fields: [wordId], references: [id], onDelete: Cascade)
+  userId     String           @db.Uuid
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reason     WordReportReason
+  note       String?          @db.VarChar(500)
+  createdAt  DateTime         @default(now())
+  resolvedAt DateTime?
+
+  @@unique([wordId, userId])
+  @@index([resolvedAt, createdAt])
+}
+
+model WordExample {
+  id         String  @id @default(uuid()) @db.Uuid
+  wordId     String  @db.Uuid
+  word       Word    @relation(fields: [wordId], references: [id], onDelete: Cascade)
+  en         String  // The weather is beautiful today.
+  vi         String? // Thời tiết hôm nay đẹp quá.
+  audioUrl   String?
+  orderIndex Int     @default(0)
+  source     String?
+
+  @@index([wordId])
+}
+
+// ===================================================================
+//  NHÓM SPACED REPETITION
+// ===================================================================
+
+/// Trạng thái SRS: 1 dòng / (user, word). Chứa superset trường của SM-2 và FSRS
+/// để đổi thuật toán không cần migration.
+model UserWordProgress {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wordId    String   @db.Uuid
+  word      Word     @relation(fields: [wordId], references: [id], onDelete: Cascade)
+  /// denormalize từ Word.level — để lọc "chỉ ôn level 3" không cần join.
+  level     Int
+  state     SrsState @default(NEW)
+
+  // --- dùng chung ---
+  dueAt          DateTime?
+  lastReviewedAt DateTime?
+  reps           Int           @default(0)
+  lapses         Int           @default(0)
+  lastRating     ReviewRating?
+  learnedAt      DateTime? // mốc "đã thuộc" lần đầu
+  isSuspended    Boolean       @default(false)
+  isLeech        Boolean       @default(false)
+
+  // --- SM-2 ---
+  easeFactor   Float @default(2.5)
+  intervalDays Float @default(0)
+
+  // --- FSRS ---
+  stability  Float?
+  difficulty Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reviewLogs ReviewLog[]
+
+  @@unique([userId, wordId])
+  @@index([userId, dueAt])
+  @@index([userId, level, dueAt])
+  @@index([userId, state])
+}
+
+/// Lịch sử review — append-only. Cần cho FSRS optimize + phân tích + streak.
+model ReviewLog {
+  id             String           @id @default(uuid()) @db.Uuid
+  userId         String           @db.Uuid
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wordId         String           @db.Uuid
+  progressId     String           @db.Uuid
+  progress       UserWordProgress @relation(fields: [progressId], references: [id], onDelete: Cascade)
+  studySessionId String?          @db.Uuid
+  studySession   StudySession?    @relation(fields: [studySessionId], references: [id], onDelete: SetNull)
+
+  rating     ReviewRating
+  reviewType ReviewType
+  reviewedAt DateTime     @default(now())
+
+  stateBefore      SrsState
+  stateAfter       SrsState
+  intervalBefore   Float
+  intervalAfter    Float
+  easeBefore       Float?
+  easeAfter        Float?
+  stabilityBefore  Float?
+  stabilityAfter   Float?
+  difficultyBefore Float?
+  difficultyAfter  Float?
+  elapsedDays      Float    @default(0)
+  scheduledDays    Float    @default(0)
+  durationMs       Int?
+
+  @@index([userId, reviewedAt])
+  @@index([wordId])
+  @@index([progressId])
+}
+
+model StudySession {
+  id            String      @id @default(uuid()) @db.Uuid
+  userId        String      @db.Uuid
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  source        StudySource
+  startedAt     DateTime    @default(now())
+  endedAt       DateTime?
+  cardsReviewed Int         @default(0)
+  cardsCorrect  Int         @default(0)
+  newCards      Int         @default(0)
+
+  reviewLogs   ReviewLog[]
+  quizAttempts QuizAttempt[]
+
+  @@index([userId, startedAt])
+}
+
+// ===================================================================
+//  NHÓM TIẾN ĐỘ
+// ===================================================================
+
+/// Cache đọc O(1) cho dashboard — cập nhật tăng dần sau mỗi review.
+model UserLevelProgress {
+  id             String       @id @default(uuid()) @db.Uuid
+  userId         String       @db.Uuid
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  level          Int
+  levelRef       EnglishLevel @relation(fields: [level], references: [level])
+  totalWords     Int          @default(0)
+  learnedWords   Int          @default(0)
+  reviewingWords Int          @default(0)
+  dueWords       Int          @default(0)
+  atRiskWords    Int          @default(0)
+  completedAt    DateTime?
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([userId, level])
+}
+
+/// Tiến độ theo từng Bài của user (dùng cho trang Lộ trình).
+model UserLessonProgress {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @db.Uuid
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonId     String    @db.Uuid
+  lesson       Lesson    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  learnedWords Int       @default(0)
+  totalWords   Int       @default(0)
+  startedAt    DateTime?
+  completedAt  DateTime?
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([userId, lessonId])
+  @@index([userId])
+}
+
+// ===================================================================
+//  NHÓM ĐỘNG LỰC (GAMIFICATION)
+// ===================================================================
+
+/// 1 dòng / (user, ngày-địa-phương). Nền cho streak, mục tiêu ngày, biểu đồ.
+model UserDailyActivity {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @db.Uuid
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// ngày theo timezone của user (chỉ phần date)
+  localDate      DateTime @db.Date
+  wordsReviewed  Int      @default(0)
+  wordsLearned   Int      @default(0)
+  minutesStudied Float    @default(0)
+  goalMet        Boolean  @default(false)
+  xp             Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, localDate])
+  @@index([userId, localDate(sort: Desc)])
+}
+
+/// Denormalize chuỗi streak để đọc nhanh (1-1 User).
+model UserStreak {
+  userId              String    @id @db.Uuid
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentStreak       Int       @default(0)
+  longestStreak       Int       @default(0)
+  lastActiveLocalDate DateTime? @db.Date
+  streakFreezeCount   Int       @default(0)
+  updatedAt           DateTime  @updatedAt
+}
+
+/// Danh mục huy hiệu (seed tĩnh).
+model Achievement {
+  id            String              @id @default(uuid()) @db.Uuid
+  code          String              @unique // LEVEL_1_COMPLETE, STREAK_7, ...
+  nameVi        String
+  descriptionVi String
+  iconUrl       String?
+  category      AchievementCategory
+  threshold     Int                 @default(0)
+  meta          Json?
+
+  users         UserAchievement[]
+  notifications Notification[]
+}
+
+model UserAchievement {
+  id            String      @id @default(uuid()) @db.Uuid
+  userId        String      @db.Uuid
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievementId String      @db.Uuid
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  unlockedAt    DateTime    @default(now())
+  progressValue Int         @default(0)
+
+  @@unique([userId, achievementId])
+  @@index([userId])
+}
+
+model QuizAttempt {
+  id             String        @id @default(uuid()) @db.Uuid
+  userId         String        @db.Uuid
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  studySessionId String?       @db.Uuid
+  studySession   StudySession? @relation(fields: [studySessionId], references: [id], onDelete: SetNull)
+  startedAt      DateTime      @default(now())
+  completedAt    DateTime?
+  totalQuestions Int           @default(0)
+  correctCount   Int           @default(0)
+  scorePct       Float         @default(0)
+  format         Json?
+
+  answers QuizAnswer[]
+
+  @@index([userId, completedAt])
+}
+
+model QuizAnswer {
+  id            String      @id @default(uuid()) @db.Uuid
+  quizAttemptId String      @db.Uuid
+  quizAttempt   QuizAttempt @relation(fields: [quizAttemptId], references: [id], onDelete: Cascade)
+  wordId        String      @db.Uuid
+  isCorrect     Boolean
+  chosen        String?
+  correct       String?
+  responseMs    Int?
+
+  @@index([quizAttemptId])
+}
+
+// ===================================================================
+//  NHÓM HỌC QUA VIDEO
+// ===================================================================
+
+/// Video YouTube kèm bản chép (transcript) + bản dịch tiếng Việt.
+model Video {
+  id            String    @id @default(uuid()) @db.Uuid
+  youtubeId     String
+  title         String // tiêu đề tiếng Việt
+  titleEn       String? // tiêu đề tiếng Anh
+  description   String?
+  level         Int?
+  kind          VideoKind @default(LESSON)
+  sentenceCount Int       @default(0)
+  thumbnailUrl  String?
+  author        String? // tên kênh YouTube
+  isFree        Boolean   @default(true)
+  sortOrder     Int       @default(1000)
+  createdById   String?   @db.Uuid
+  createdBy     User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  lines         VideoLine[]
+  progress      UserVideoProgress[]
+  comments      VideoComment[]
+  likes         VideoLike[]
+  notifications Notification[]
+
+  @@index([level])
+  @@index([sortOrder, createdAt])
+}
+
+/// Một câu trong bản chép của video.
+model VideoLine {
+  id       String  @id @default(uuid()) @db.Uuid
+  videoId  String  @db.Uuid
+  video    Video   @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  index    Int // 1-based
+  startMs  Int? // mốc thời gian trong video (nếu có)
+  /// Câu tiếng Anh gốc
+  en       String
+  /// Phiên âm IPA (nếu có)
+  phonetic String?
+  /// Bản dịch tiếng Việt
+  vi       String?
+
+  @@unique([videoId, index])
+  @@index([videoId])
+}
+
+/// Tiến độ xem video của từng user.
+model UserVideoProgress {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @db.Uuid
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  videoId       String    @db.Uuid
+  video         Video     @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  lastLineIndex Int       @default(0)
+  linesRead     Int       @default(0)
+  completedAt   DateTime?
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([userId, videoId])
+  @@index([userId])
+}
+
+/// Bình luận ở trang xem video.
+model VideoComment {
+  id        String         @id @default(uuid()) @db.Uuid
+  videoId   String         @db.Uuid
+  video     Video          @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  userId    String         @db.Uuid
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String         @db.VarChar(2000)
+  parentId  String?        @db.Uuid
+  parent    VideoComment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   VideoComment[] @relation("CommentReplies")
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  notifications Notification[]
+
+  @@index([videoId, parentId, createdAt])
+  @@index([userId])
+}
+
+/// Lượt thích video.
+model VideoLike {
+  id        String   @id @default(uuid()) @db.Uuid
+  videoId   String   @db.Uuid
+  video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, videoId])
+  @@index([videoId])
+}
+
+// ===================================================================
+//  NGỮ PHÁP (nội dung tĩnh, seed sẵn)
+// ===================================================================
+
+/// Một điểm ngữ pháp tiếng Anh. Nội dung soạn tay.
+model GrammarPoint {
+  id            String   @id @default(uuid()) @db.Uuid
+  slug          String   @unique
+  level         Int
+  orderIndex    Int      @default(0)
+  titleVi       String // "Thì hiện tại đơn — Present Simple"
+  titleEn       String // "Present Simple Tense"
+  summaryVi     String // 1–2 câu tóm tắt
+  explanationVi String // giải thích đầy đủ (xuống dòng bằng \n)
+  /// Mẫu câu/cấu trúc
+  patterns      String[] // ["S + V(s/es) + O", ...]
+  /// Ví dụ [{ en, vi }]
+  examples      Json // [{ en: "I go to school every day", vi: "Tôi đi học mỗi ngày" }]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([level, orderIndex])
+}
+
+// ===================================================================
+//  KIỂM TRA
+// ===================================================================
+
+/// Kết quả một lần làm bài Kiểm tra.
+model ExamAttempt {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  level        Int
+  totalCount   Int
+  correctCount Int
+  durationSec  Int?
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+// ===================================================================
+//  THÔNG BÁO ĐẨY (Web Push)
+// ===================================================================
+
+model PushSubscription {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ===================================================================
+//  THÔNG BÁO TRONG APP
+// ===================================================================
+
+enum NotificationType {
+  COMMENT_REPLY
+  VIDEO_COMMENT
+  VIDEO_LIKE
+  NEW_FOLLOWER
+  ACHIEVEMENT_UNLOCKED
+}
+
+model Notification {
+  id            String           @id @default(uuid()) @db.Uuid
+  userId        String           @db.Uuid
+  user          User             @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  type          NotificationType
+  actorId       String?          @db.Uuid
+  actor         User?            @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  videoId       String?          @db.Uuid
+  video         Video?           @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  commentId     String?          @db.Uuid
+  comment       VideoComment?    @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  achievementId String?          @db.Uuid
+  achievement   Achievement?     @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  readAt        DateTime?
+  createdAt     DateTime         @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, readAt])
+}
+
+// ===================================================================
+//  LUYỆN NGHE / PHÁT ÂM / CHÍNH TẢ
+// ===================================================================
+
+enum PracticeSkill {
+  LISTENING
+  PRONUNCIATION
+  /// Dictation: listen to an example sentence and type it back (/writing).
+  WRITING
+}
+
+model PracticeAttempt {
+  id        String        @id @default(uuid()) @db.Uuid
+  userId    String        @db.Uuid
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wordId    String        @db.Uuid
+  word      Word          @relation(fields: [wordId], references: [id], onDelete: Cascade)
+  skill     PracticeSkill
+  isCorrect Boolean?
+  createdAt DateTime      @default(now())
+
+  @@index([userId, skill, createdAt])
+  @@index([wordId])
+}
+
+// ===================================================================
+//  SỔ TAY TỪ VỰNG
+// ===================================================================
+
+/// A word the user bookmarked in their notebook ("Đã lưu" tab). The
+/// "Hay sai" tab needs no table: it reads UserWordProgress.lapses.
+model SavedWord {
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wordId    String   @db.Uuid
+  word      Word     @relation(fields: [wordId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([userId, wordId])
+  @@index([userId, createdAt])
+}
+
+// ===================================================================
+//  THEO DÕI / KẾT BẠN
+// ===================================================================
+
+model Follow {
+  id          String   @id @default(uuid()) @db.Uuid
+  followerId  String   @db.Uuid
+  follower    User     @relation("Follower", fields: [followerId], references: [id], onDelete: Cascade)
+  followingId String   @db.Uuid
+  following   User     @relation("Following", fields: [followingId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followingId])
+  @@index([followingId])
+}
+
+model Referral {
+  id         String    @id @default(uuid()) @db.Uuid
+  referrerId String    @db.Uuid
+  referrer   User      @relation("ReferralsSent", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredId String    @unique @db.Uuid
+  referred   User      @relation("ReferralsReceived", fields: [referredId], references: [id], onDelete: Cascade)
+  rewardedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([referrerId])
+}
+
+// ===================================================================
+//  MINIGAME
+// ===================================================================
+
+model MinigameSession {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mode       GameMode  @default(TRANSLATE)
+  questions  Json
+  score      Int?
+  totalAsked Int?
+  durationMs Int?
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  @@index([userId])
+  @@index([finishedAt])
+}
+
+enum GameMode {
+  TRANSLATE // English → nghĩa
+  LISTENING // Nghe → nghĩa
+  MATCH     // Ghép cặp lật thẻ
+}
+
+// ===================================================================
+//  VÍ XU
+// ===================================================================
+
+model UserWallet {
+  userId    String   @id @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance   Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+model CoinTransaction {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount    Int
+  reason    String
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// ===================================================================
+//  ĐẤU 1v1 + RANK + MÙA GIẢI
+// ===================================================================
+
+model UserRating {
+  userId    String   @id @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  elo       Int      @default(1000)
+  wins      Int      @default(0)
+  losses    Int      @default(0)
+  draws     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@index([elo])
+}
+
+model DuelMatch {
+  id              String   @id @default(uuid()) @db.Uuid
+  playerAId       String   @db.Uuid
+  playerA         User     @relation("DuelPlayerA", fields: [playerAId], references: [id], onDelete: Cascade)
+  playerBId       String   @db.Uuid
+  playerB         User     @relation("DuelPlayerB", fields: [playerBId], references: [id], onDelete: Cascade)
+  scoreA          Int
+  scoreB          Int
+  winnerId        String?  @db.Uuid
+  forfeitedUserId String?  @db.Uuid
+  eloChangeA      Int
+  eloChangeB      Int
+  createdAt       DateTime @default(now())
+
+  @@index([playerAId])
+  @@index([playerBId])
+}
+
+model DuelSeason {
+  id        String             @id @default(uuid()) @db.Uuid
+  number    Int                @unique // YYYYMM
+  startedAt DateTime           @default(now())
+  endedAt   DateTime?
+  results   DuelSeasonResult[]
+}
+
+model DuelSeasonResult {
+  id           String     @id @default(uuid()) @db.Uuid
+  seasonId     String     @db.Uuid
+  season       DuelSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  userId       String     @db.Uuid
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  finalElo     Int
+  tier         String
+  rank         Int
+  wins         Int
+  losses       Int
+  draws        Int
+  coinsAwarded Int
+  createdAt    DateTime   @default(now())
+
+  @@unique([seasonId, userId])
+  @@index([userId])
+}
+
+// ===================================================================
+//  NHẮN TIN TRỰC TIẾP
+// ===================================================================
+
+model Conversation {
+  id        String   @id @default(uuid()) @db.Uuid
+  userAId   String   @db.Uuid
+  userA     User     @relation("ConversationUserA", fields: [userAId], references: [id], onDelete: Cascade)
+  userBId   String   @db.Uuid
+  userB     User     @relation("ConversationUserB", fields: [userBId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages DirectMessage[]
+
+  @@unique([userAId, userBId])
+  @@index([userBId])
+}
+
+model DirectMessage {
+  id             String       @id @default(uuid()) @db.Uuid
+  conversationId String       @db.Uuid
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String       @db.Uuid
+  sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  content        String       @db.VarChar(2000)
+  readAt         DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+// ===================================================================
+//  KHẢO SÁT ĐẦU VÀO (lộ trình đề xuất)
+// ===================================================================
+
+enum OnboardingGoal {
+  TRAVEL       // giao tiếp khi du lịch
+  WORK         // phục vụ công việc
+  EXAM         // thi IELTS/TOEIC
+  ACADEMIC     // du học
+  ENTERTAINMENT // xem phim, nghe nhạc không phụ đề
+  INTEREST     // sở thích cá nhân
+  OTHER
+}
+
+model OnboardingProfile {
+  userId            String         @id @db.Uuid
+  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hasStudiedBefore  Boolean
+  /// Cấp tự đánh giá (1-6)
+  selfAssessedLevel Int?
+  goal              OnboardingGoal
+  plansToTakeExam   Boolean
+  /// Cấp muốn đạt (1-6)
+  targetLevel       Int?
+  targetDate        DateTime?
+  recommendedLevel  Int
+  recommendationVi  String
+  completedAt       DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+}
+
+// ===================================================================
+//  TRỢ LÝ AI LINGO (RAG qua Gemini)
+// ===================================================================
+
+enum ChatRole {
+  USER
+  MODEL
+}
+
+model ChatSession {
+  id        String        @id @default(uuid()) @db.Uuid
+  userId    String        @db.Uuid
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String?
+  messages  ChatMessage[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([userId, updatedAt(sort: Desc)])
+}
+
+/// Embedded RAG chunk for the AI assistant. Persisted in the database so a restart on a host
+/// with an ephemeral filesystem reloads the index instead of re-embedding (Gemini quota).
+model AssistantIndexChunk {
+  /// "grammar:<uuid>" or "faq:<i>"
+  sourceId  String   @id
+  title     String
+  text      String
+  embedding Float[]
+  updatedAt DateTime @updatedAt
+}
+
+/// Câu hỏi trợ lý AI đã dùng mỗi ngày học. Đếm riêng (không đếm ChatMessage)
+/// để xoá cuộc trò chuyện không làm reset hạn mức.
+model AssistantDailyUsage {
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// ngày học theo timezone của user (chỉ phần date)
+  localDate DateTime @db.Date
+  count     Int      @default(0)
+
+  @@id([userId, localDate])
+}
+
+model ChatMessage {
+  id        String      @id @default(uuid()) @db.Uuid
+  sessionId String      @db.Uuid
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role      ChatRole
+  text      String      @db.VarChar(4000)
+  createdAt DateTime    @default(now())
+
+  @@index([sessionId, createdAt])
+}

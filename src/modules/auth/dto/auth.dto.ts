@@ -1,0 +1,68 @@
+import {
+  IsEmail,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
+
+export class RegisterDto {
+  @IsEmail()
+  email!: string;
+
+  @IsString()
+  @MinLength(8)
+  @MaxLength(72)
+  password!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(80)
+  displayName!: string;
+
+  @IsOptional()
+  @IsString()
+  timezone?: string;
+
+  /** userId của người giới thiệu (link mời bạn bè `?ref=<userId>`). */
+  @IsOptional()
+  @IsUUID()
+  ref?: string;
+}
+
+export class LoginDto {
+  @IsEmail()
+  email!: string;
+
+  @IsString()
+  @MinLength(1)
+  password!: string;
+}
+
+export class ForgotPasswordDto {
+  @IsEmail()
+  email!: string;
+}
+
+export class ResetPasswordDto {
+  @IsString()
+  token!: string;
+
+  @IsString()
+  @MinLength(8)
+  @MaxLength(72)
+  password!: string;
+}
+
+export class VerifyEmailDto {
+  @IsString()
+  token!: string;
+}
+
+export class GoogleLoginDto {
+  /** id_token do frontend lấy qua Google Identity Services */
+  @IsString()
+  @MinLength(20)
+  idToken!: string;
+}

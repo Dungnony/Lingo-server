@@ -1,0 +1,73 @@
+# compiled output
+/dist
+/node_modules
+/build
+# Prisma client, produced by `prisma generate` (build/test/start:dev run it)
+/src/generated/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# OS
+.DS_Store
+
+# Tests
+/coverage
+/.nyc_output
+
+# IDEs and editors
+/.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# dotenv environment variable files
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+
+# temp directory
+.temp
+.tmp
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Diagnostic reports (https://nodejs.org/api/report.html)
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Nguồn dữ liệu tải về (không commit — xem scripts/import/README.md)
+/data/raw/
+# Kết quả build của ETL (giữ words.seed.json + enrich-cache.json, bỏ báo cáo tạm)
+/data/processed/build-report.md
+/assets/avatars/
+
+# Prisma
+/prisma/migrations/dev.db*
+
+# Cache runtime tự sinh lại được (vd index RAG của trợ lý AI) — không commit.
+/.cache/
+
+# Local AI assistant instructions
+/CLAUDE.md

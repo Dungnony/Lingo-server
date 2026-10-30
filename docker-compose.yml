@@ -1,0 +1,26 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: lingo-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lingo
+      POSTGRES_PASSWORD: lingo
+      POSTGRES_DB: lingo
+    ports:
+      - "127.0.0.1:2222:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: lingo-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:2223:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:

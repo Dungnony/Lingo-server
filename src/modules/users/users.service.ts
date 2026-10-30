@@ -1,0 +1,388 @@
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import {
+  AuthProvider,
+  Prisma,
+  SrsState,
+  type User,
+} from '../../generated/prisma/client';
+import type { Env } from '../../config/env.validation';
+import { PasswordService } from '../auth/password.service';
+import { PrismaService } from '../../infra/prisma/prisma.service';
+import {
+  AVATAR_MAX_BYTES,
+  AVATAR_MIME_TYPES,
+  avatarUrlFor,
+} from './avatar.util';
+
+interface CreateUserInput {
+  email: string;
+  displayName: string;
+  passwordHash?: string | null;
+  avatarUrl?: string | null;
+  timezone?: string;
+  emailVerified?: boolean;
+}
+
+@Injectable()
+export class UsersService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService<Env, true>,
+    private readonly password: PasswordService,
+  ) {}
+
+  /** Đổi mật khẩu khi đang đăng nhập. Nếu đã có mật khẩu thì phải nhập đúng mật khẩu cũ. */
+  async changePassword(
+    id: string,
+    currentPassword: string | undefined,
+    newPassword: string,
+  ): Promise<{ ok: true }> {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+    if (user.passwordHash) {
+      const ok = await this.password.verify(
+        currentPassword ?? '',
+        user.passwordHash,
+      );
+      if (!ok) throw new BadRequestException('Mật khẩu hiện tại không đúng');
+    }
+    const hash = await this.password.hash(newPassword);
+    await this.prisma.user.update({
+      where: { id },
+      data: { passwordHash: hash },
+    });
+    return { ok: true };
+  }
+
+  findByEmail(email: string): Promise<User | null> {
+    return this.prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+    });
+  }
+
+  findById(id: string): Promise<User | null> {
+    return this.prisma.user.findUnique({ where: { id } });
+  }
+
+  async getProfile(id: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      include: {
+        settings: true,
+        streak: true,
+        accounts: { select: { provider: true } },
+      },
+    });
+    if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+    const { passwordHash, ...safe } = user;
+    return { ...safe, hasPassword: Boolean(passwordHash) };
+  }
+
+  /** Hồ sơ công khai xem được bởi người khác — CHỈ trả field an toàn để lộ
+   * (không email/settings/oauth như getProfile()). Kèm huy hiệu đã mở khoá,
+   * số liệu học tập, và danh sách rút gọn người theo dõi/đang theo dõi (tối
+   * đa 30) để có trang "hồ sơ + bạn bè" mà roadmap còn thiếu. */
+  async getPublicProfile(targetId: string, viewerId: string) {
+    const [
+      user,
+      streak,
+      learnedWordsCount,
+      completedLessonsCount,
+      achievements,
+      followerCount,
+      followingCount,
+      isFollowing,
+      followers,
+      following,
+    ] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: targetId },
+        select: {
+          id: true,
+          displayName: true,
+          avatarUrl: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.userStreak.findUnique({ where: { userId: targetId } }),
+      this.prisma.userWordProgress.count({
+        where: {
+          userId: targetId,
+          OR: [
+            { learnedAt: { not: null } },
+            { state: SrsState.REVIEW, intervalDays: { gte: 21 } },
+          ],
+        },
+      }),
+      this.prisma.userLessonProgress.count({
+        where: { userId: targetId, completedAt: { not: null } },
+      }),
+      this.prisma.userAchievement.findMany({
+        where: { userId: targetId },
+        include: { achievement: true },
+        orderBy: { unlockedAt: 'desc' },
+      }),
+      this.prisma.follow.count({ where: { followingId: targetId } }),
+      this.prisma.follow.count({ where: { followerId: targetId } }),
+      this.prisma.follow.findUnique({
+        where: {
+          followerId_followingId: {
+            followerId: viewerId,
+            followingId: targetId,
+          },
+        },
+      }),
+      this.prisma.follow.findMany({
+        where: { followingId: targetId },
+        take: 30,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          follower: {
+            select: { id: true, displayName: true, avatarUrl: true },
+          },
+        },
+      }),
+      this.prisma.follow.findMany({
+        where: { followerId: targetId },
+        take: 30,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          following: {
+            select: { id: true, displayName: true, avatarUrl: true },
+          },
+        },
+      }),
+    ]);
+    if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+
+    return {
+      id: user.id,
+      displayName: user.displayName,
+      avatarUrl: user.avatarUrl,
+      joinedAt: user.createdAt,
+      currentStreak: streak?.currentStreak ?? 0,
+      longestStreak: streak?.longestStreak ?? 0,
+      learnedWordsCount,
+      completedLessonsCount,
+      achievements: achievements.map((a) => ({
+        code: a.achievement.code,
+        nameVi: a.achievement.nameVi,
+        descriptionVi: a.achievement.descriptionVi,
+        unlockedAt: a.unlockedAt,
+      })),
+      followerCount,
+      followingCount,
+      isFollowing: Boolean(isFollowing),
+      isMe: targetId === viewerId,
+      followers: followers.map((f) => f.follower),
+      following: following.map((f) => f.following),
+    };
+  }
+
+  /** Tìm người dùng theo tên hiển thị HOẶC đúng mã người dùng (UID) — để
+   * theo dõi/nhắn tin khi họ không lọt vào bảng xếp hạng, hoặc khi trùng
+   * tên khó tìm thì gửi thẳng UID cho nhau. Kèm streak hiện tại +
+   * isFollowing giống style `LeaderboardService.top()`. */
+  async search(viewerId: string, q: string) {
+    const query = q.trim();
+    if (!query) return [];
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        query,
+      );
+
+    const users = await this.prisma.user.findMany({
+      where: {
+        AND: [
+          { id: { not: viewerId } },
+          isUuid
+            ? { id: query }
+            : { displayName: { contains: query, mode: 'insensitive' } },
+        ],
+      },
+      select: { id: true, displayName: true, avatarUrl: true },
+      orderBy: { displayName: 'asc' },
+      take: 20,
+    });
+    if (users.length === 0) return [];
+
+    const ids = users.map((u) => u.id);
+    const [streaks, myFollows] = await Promise.all([
+      this.prisma.userStreak.findMany({
+        where: { userId: { in: ids } },
+        select: { userId: true, currentStreak: true },
+      }),
+      this.prisma.follow.findMany({
+        where: { followerId: viewerId, followingId: { in: ids } },
+        select: { followingId: true },
+      }),
+    ]);
+    const streakMap = new Map(streaks.map((s) => [s.userId, s.currentStreak]));
+    const followingSet = new Set(myFollows.map((f) => f.followingId));
+
+    return users.map((u) => ({
+      id: u.id,
+      displayName: u.displayName,
+      avatarUrl: u.avatarUrl,
+      currentStreak: streakMap.get(u.id) ?? 0,
+      isFollowing: followingSet.has(u.id),
+    }));
+  }
+
+  /** Tạo user kèm settings + streak mặc định trong 1 transaction. */
+  async createUser(input: CreateUserInput): Promise<User> {
+    const defaultTz = this.config.get('DEFAULT_USER_TIMEZONE', { infer: true });
+    const newPerDay = this.config.get('SRS_DEFAULT_NEW_PER_DAY', {
+      infer: true,
+    });
+    const retention = this.config.get('SRS_DEFAULT_TARGET_RETENTION', {
+      infer: true,
+    });
+    const scheduler = this.config.get('SRS_SCHEDULER', { infer: true });
+
+    return this.prisma.user.create({
+      data: {
+        email: input.email.toLowerCase(),
+        displayName: input.displayName,
+        passwordHash: input.passwordHash ?? null,
+        avatarUrl: input.avatarUrl ?? null,
+        timezone: input.timezone ?? defaultTz,
+        emailVerifiedAt: input.emailVerified ? new Date() : null,
+        settings: {
+          create: {
+            newCardsPerDay: newPerDay,
+            targetRetention: retention,
+            srsScheduler: scheduler,
+          },
+        },
+        streak: { create: {} },
+      },
+    });
+  }
+
+  async linkOAuthAccount(
+    userId: string,
+    provider: AuthProvider,
+    data: {
+      providerAccountId: string;
+      accessToken?: string;
+      refreshToken?: string;
+      expiresAt?: Date;
+      scope?: string;
+      idToken?: string;
+      tokenType?: string;
+    },
+  ): Promise<void> {
+    const payload = {
+      accessToken: data.accessToken ?? null,
+      refreshToken: data.refreshToken ?? null,
+      expiresAt: data.expiresAt ?? null,
+      scope: data.scope ?? null,
+      idToken: data.idToken ?? null,
+      tokenType: data.tokenType ?? null,
+    } satisfies Prisma.AccountUpdateInput;
+
+    await this.prisma.account.upsert({
+      where: {
+        provider_providerAccountId: {
+          provider,
+          providerAccountId: data.providerAccountId,
+        },
+      },
+      create: {
+        userId,
+        provider,
+        providerAccountId: data.providerAccountId,
+        ...payload,
+      },
+      update: payload,
+    });
+  }
+
+  findAccount(provider: AuthProvider, providerAccountId: string) {
+    return this.prisma.account.findUnique({
+      where: {
+        provider_providerAccountId: { provider, providerAccountId },
+      },
+      include: { user: true },
+    });
+  }
+
+  async touchLastActive(id: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id },
+      data: { lastActiveAt: new Date() },
+    });
+  }
+
+  async updateProfile(
+    id: string,
+    data: {
+      displayName?: string;
+      avatarUrl?: string;
+      timezone?: string;
+      locale?: string;
+    },
+  ) {
+    const user = await this.prisma.user.update({ where: { id }, data });
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- huỷ passwordHash khỏi kết quả trả về
+    const { passwordHash, ...safe } = user;
+    return safe;
+  }
+
+  async setAvatarFile(id: string, file: Express.Multer.File) {
+    if (!AVATAR_MIME_TYPES.has(file.mimetype)) {
+      throw new BadRequestException('Chỉ nhận ảnh PNG, JPG hoặc WEBP');
+    }
+    if (file.size > AVATAR_MAX_BYTES) {
+      throw new BadRequestException('Ảnh tối đa 2MB');
+    }
+
+    // Prisma's Bytes input is Uint8Array<ArrayBuffer>; Node's Buffer may sit on a
+    // SharedArrayBuffer, so copy it into a plain Uint8Array.
+    const data = new Uint8Array(file.buffer);
+    await this.prisma.userAvatar.upsert({
+      where: { userId: id },
+      create: { userId: id, mimeType: file.mimetype, data },
+      update: { mimeType: file.mimetype, data },
+    });
+    return this.updateProfile(id, { avatarUrl: avatarUrlFor(id, Date.now()) });
+  }
+
+  async clearAvatar(id: string) {
+    await this.prisma.userAvatar.deleteMany({ where: { userId: id } });
+    return this.updateProfile(id, { avatarUrl: null as unknown as undefined });
+  }
+
+  getAvatar(userId: string) {
+    return this.prisma.userAvatar.findUnique({
+      where: { userId },
+      select: { mimeType: true, data: true, updatedAt: true },
+    });
+  }
+
+  async setPassword(id: string, passwordHash: string): Promise<void> {
+    await this.prisma.user.update({ where: { id }, data: { passwordHash } });
+  }
+
+  /** Xoá tài khoản vĩnh viễn. Video đã thêm giữ lại (createdById → null, xử
+   * lý sẵn ở schema với onDelete: SetNull) — chỉ dữ liệu CÁ NHÂN (tiến độ,
+   * bình luận, tin nhắn, cài đặt...) mới bị xoá theo Cascade có sẵn trong
+   * schema. Yêu cầu đúng mật khẩu nếu tài khoản có đặt mật khẩu (đăng nhập
+   * Google thuần thì bỏ qua vì không có gì để xác minh thêm). */
+  async deleteAccount(id: string, password?: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+    if (user.passwordHash) {
+      const ok = await this.password.verify(password ?? '', user.passwordHash);
+      if (!ok) throw new BadRequestException('Mật khẩu không đúng');
+    }
+    // UserAvatar is removed by the onDelete: Cascade relation.
+    await this.prisma.user.delete({ where: { id } });
+  }
+}
