@@ -6,7 +6,11 @@ import {
 import { GameMode, type Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
-import type { FinishMinigameDto } from './dto/minigame.dto';
+import {
+  MINIGAME_QUESTION_COUNT,
+  type FinishMinigameDto,
+  type MinigameAnswerDto,
+} from './dto/minigame.dto';
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -17,7 +21,6 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-const QUESTION_COUNT = 30;
 const POOL_SIZE = 800;
 const MATCH_PAIRS = 8;
 /** Thời gian tối thiểu hợp lý để lật xong `MATCH_PAIRS` cặp thẻ — chặn báo
@@ -42,6 +45,40 @@ export interface MatchCard {
   content: string;
 }
 
+/** Scores convert to coins, so each question counts once: the first answer
+ * wins and repeats or words outside the session are ignored. */
+function gradeAnswers(
+  questions: readonly StoredQuestion[],
+  answers: readonly MinigameAnswerDto[],
+): { score: number; totalAsked: number } {
+  const unanswered = new Map(questions.map((q) => [q.wordId, q]));
+  let score = 0;
+  let totalAsked = 0;
+  for (const answer of answers) {
+    const question = unanswered.get(answer.wordId);
+    if (!question) continue;
+    unanswered.delete(answer.wordId);
+    totalAsked += 1;
+    if (question.correctIndex === answer.chosenIndex) score += 1;
+  }
+  return { score, totalAsked };
+}
+
+/** "Ghép cặp": không có gì bí mật để so khớp lại (khác trắc nghiệm — xem
+ * ghi chú ở `startMatchGame`), chỉ chặn báo cáo gian dối lộ liễu nhất
+ * (hoàn thành nhanh hơn mức vật lý có thể) bằng `MATCH_MIN_MS_PER_PAIR`.
+ * Điểm = số cặp trừ đi số lần lật sai, tối thiểu 1 nếu hoàn thành. */
+function gradeMatch(
+  mistakes: number,
+  durationMs: number,
+): { score: number; totalAsked: number } {
+  const plausible = durationMs >= MATCH_PAIRS * MATCH_MIN_MS_PER_PAIR;
+  return {
+    score: plausible ? Math.max(1, MATCH_PAIRS - mistakes) : 0,
+    totalAsked: MATCH_PAIRS,
+  };
+}
+
 /**
  * 3 minigame — "Dịch tốc độ" (TRANSLATE), "Nghe đoán từ" (LISTENING),
  * "Ghép cặp" (MATCH) — Giai đoạn 1 theo lộ trình trong FEATURES.md: chơi 1
@@ -59,7 +96,7 @@ export interface MatchCard {
  * để giấu (việc so khớp 2 thẻ vốn công khai ngay khi tải dữ liệu, bản chất
  * trò chơi trí nhớ), nên `finish()` chỉ chặn được báo cáo gian dối LỘ LIỄU
  * nhất (thời gian hoàn thành nhanh hơn mức vật lý có thể), xem
- * `finishMatchGame()`.
+ * `gradeMatch()`.
  */
 @Injectable()
 export class MinigameService {
@@ -84,7 +121,7 @@ export class MinigameService {
 
     const picked = shuffle(pool).slice(
       0,
-      Math.min(QUESTION_COUNT, pool.length),
+      Math.min(MINIGAME_QUESTION_COUNT, pool.length),
     );
     const allMeanings = pool.map((w) => w.meaningVi!).filter(Boolean);
 
@@ -174,75 +211,43 @@ export class MinigameService {
     if (!session || session.userId !== userId) {
       throw new NotFoundException('Không tìm thấy lượt chơi');
     }
-    if (session.finishedAt) {
-      throw new BadRequestException('Lượt chơi này đã kết thúc rồi');
-    }
 
-    if (session.mode === GameMode.MATCH) {
-      return this.finishMatchGame(userId, sessionId, dto);
-    }
+    const { durationMs } = dto;
+    const graded =
+      session.mode === GameMode.MATCH
+        ? gradeMatch(dto.mistakes ?? 0, durationMs)
+        : gradeAnswers(
+            session.questions as unknown as StoredQuestion[],
+            dto.answers ?? [],
+          );
+    const { score, totalAsked } = graded;
 
-    const answers = dto.answers ?? [];
-    const questions = session.questions as unknown as StoredQuestion[];
-    const byWordId = new Map(questions.map((q) => [q.wordId, q]));
-    let score = 0;
-    for (const a of answers) {
-      const q = byWordId.get(a.wordId);
-      if (q && q.correctIndex === a.chosenIndex) score += 1;
-    }
-
-    await this.prisma.minigameSession.update({
-      where: { id: sessionId },
-      data: {
-        score,
-        totalAsked: answers.length,
-        durationMs: dto.durationMs,
-        finishedAt: new Date(),
-      },
-    });
+    await this.closeSession(sessionId, { score, totalAsked, durationMs });
 
     // 1 xu / câu đúng — đơn giản, minh bạch cho giai đoạn kiểm chứng gameplay.
     const balance = await this.wallet.credit(userId, score, 'minigame');
 
     return {
       score,
-      totalAsked: answers.length,
+      totalAsked,
       coinsEarned: score,
       balance,
     };
   }
 
-  /** "Ghép cặp": không có gì bí mật để so khớp lại (khác trắc nghiệm — xem
-   * ghi chú ở `startMatchGame`), chỉ chặn báo cáo gian dối lộ liễu nhất
-   * (hoàn thành nhanh hơn mức vật lý có thể) bằng `MATCH_MIN_MS_PER_PAIR`.
-   * Điểm = số cặp trừ đi số lần lật sai, tối thiểu 1 nếu hoàn thành. */
-  private async finishMatchGame(
-    userId: string,
+  /** Atomic claim on `finishedAt`: of several concurrent finishes only one
+   * succeeds, so a session can never be paid out twice. */
+  private async closeSession(
     sessionId: string,
-    dto: FinishMinigameDto,
-  ) {
-    const mistakes = Math.max(0, dto.mistakes ?? 0);
-    const plausible = dto.durationMs >= MATCH_PAIRS * MATCH_MIN_MS_PER_PAIR;
-    const score = plausible ? Math.max(1, MATCH_PAIRS - mistakes) : 0;
-
-    await this.prisma.minigameSession.update({
-      where: { id: sessionId },
-      data: {
-        score,
-        totalAsked: MATCH_PAIRS,
-        durationMs: dto.durationMs,
-        finishedAt: new Date(),
-      },
+    result: { score: number; totalAsked: number; durationMs: number },
+  ): Promise<void> {
+    const { count } = await this.prisma.minigameSession.updateMany({
+      where: { id: sessionId, finishedAt: null },
+      data: { ...result, finishedAt: new Date() },
     });
-
-    const balance = await this.wallet.credit(userId, score, 'minigame');
-
-    return {
-      score,
-      totalAsked: MATCH_PAIRS,
-      coinsEarned: score,
-      balance,
-    };
+    if (count === 0) {
+      throw new BadRequestException('Lượt chơi này đã kết thúc rồi');
+    }
   }
 
   async leaderboard(

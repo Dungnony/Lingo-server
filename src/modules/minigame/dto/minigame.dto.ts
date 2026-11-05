@@ -1,6 +1,7 @@
 import { GameMode } from '../../../generated/prisma/client';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
   IsEnum,
   IsIn,
@@ -10,6 +11,8 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+
+export const MINIGAME_QUESTION_COUNT = 30;
 
 export class MinigameAnswerDto {
   @IsUUID()
@@ -24,6 +27,7 @@ export class FinishMinigameDto {
   /** TRANSLATE/LISTENING: trắc nghiệm mỗi câu. Không dùng cho MATCH. */
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(MINIGAME_QUESTION_COUNT)
   @ValidateNested({ each: true })
   @Type(() => MinigameAnswerDto)
   answers?: MinigameAnswerDto[];
