@@ -10,6 +10,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import type { AuthUser } from '../../common/types';
 import {
   MessagesPageQuery,
@@ -36,6 +37,7 @@ export class MessagesController {
 
   /** Số liệu tổng quan (không phải riêng của user gọi) — để đánh giá tính
    * năng nhắn tin có đang thực sự được dùng hay không, xem `usageStats()`. */
+  @Roles('admin')
   @Get('usage-stats')
   usageStats() {
     return this.messages.usageStats();
