@@ -55,6 +55,7 @@ So với `.env.example`, nhớ đổi ít nhất:
 - `FRONTEND_URL` — URL của client (CORS + redirect)
 - `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` — chuỗi ngẫu nhiên mạnh (`openssl rand -base64 48`)
 - `COOKIE_DOMAIN` — domain chung của client và API (vd `.example.com`), `COOKIE_SECURE=true`
+- `TRUST_PROXY_HOPS=1` — API đứng sau reverse proxy; thiếu biến này rate limit gộp mọi user vào IP của proxy
 - `GOOGLE_CLIENT_ID`, `GEMINI_API_KEY`, `MAIL_*`, `VAPID_*` nếu dùng các tính năng tương ứng
 
 ## Bật CI/CD tự deploy

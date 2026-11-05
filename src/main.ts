@@ -1,6 +1,7 @@
 import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
@@ -10,8 +11,10 @@ import { RedisIoAdapter } from './infra/redis/redis-io.adapter';
 import { AVATAR_ROUTE } from './modules/users/avatar.util';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const config = app.get<ConfigService<Env, true>>(ConfigService);
+  const trustProxyHops = config.get('TRUST_PROXY_HOPS', { infer: true });
+  if (trustProxyHops > 0) app.set('trust proxy', trustProxyHops);
   // WebSocket (NotificationsGateway, tin nhắn realtime) chạy chung cổng HTTP
   // — gắn Redis adapter để pub/sub được xuyên suốt khi chạy nhiều instance.
   const redisIoAdapter = new RedisIoAdapter(app);

@@ -136,6 +136,7 @@ All variables are documented in [`.env.example`](.env.example). The most importa
 | `MAIL_HOST`, `MAIL_USER`, `MAIL_PASSWORD` | no | SMTP; when empty, emails are printed to the console |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | no | Web Push; generate with `npx web-push generate-vapid-keys` |
 | `ASSISTANT_DAILY_LIMIT` | no | Assistant questions per user per day (default 30) |
+| `TRUST_PROXY_HOPS` | no | Reverse proxies in front of the API (set `1` behind nginx/Render so rate limiting sees real client IPs; default 0) |
 
 Never commit `.env`; it is git-ignored.
 

@@ -51,6 +51,10 @@ export const envSchema = z.object({
 
   THROTTLE_TTL: z.coerce.number().int().positive().default(60),
   THROTTLE_LIMIT: z.coerce.number().int().positive().default(100),
+  // Reverse-proxy hops in front of the API. Without it every request behind
+  // nginx/Render shares the proxy's IP, so one user's traffic rate-limits all.
+  // Keep 0 when the API is exposed directly: X-Forwarded-For would be spoofable.
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).default(0),
 
   AUDIO_BASE_URL: z.string().default(''),
 

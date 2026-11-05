@@ -17,6 +17,7 @@ describe('validateEnv', () => {
     expect(env.FRONTEND_URL).toBe('http://localhost:3000');
     expect(env.ASSISTANT_DAILY_LIMIT).toBe(30);
     expect(env.SRS_DEFAULT_TARGET_RETENTION).toBe(0.9);
+    expect(env.TRUST_PROXY_HOPS).toBe(0);
   });
 
   it('accepts non-http URL schemes for the database and Redis', () => {
@@ -30,9 +31,15 @@ describe('validateEnv', () => {
   });
 
   it('coerces numeric strings', () => {
-    const env = validateEnv({ ...REQUIRED, PORT: '9000', MAIL_PORT: '465' });
+    const env = validateEnv({
+      ...REQUIRED,
+      PORT: '9000',
+      MAIL_PORT: '465',
+      TRUST_PROXY_HOPS: '1',
+    });
     expect(env.PORT).toBe(9000);
     expect(env.MAIL_PORT).toBe(465);
+    expect(env.TRUST_PROXY_HOPS).toBe(1);
   });
 
   it('turns boolean flags into booleans, including their defaults', () => {
@@ -56,6 +63,7 @@ describe('validateEnv', () => {
     ['COOKIE_SECURE', 'yes'],
     ['STREAK_DAY_CUTOFF_HOUR', '24'],
     ['SRS_DEFAULT_TARGET_RETENTION', '0.5'],
+    ['TRUST_PROXY_HOPS', '-1'],
   ])('rejects an invalid %s', (key, value) => {
     expect(() => validateEnv({ ...REQUIRED, [key]: value })).toThrow(
       new RegExp(key),
