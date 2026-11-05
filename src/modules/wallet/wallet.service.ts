@@ -59,6 +59,40 @@ export class WalletService {
     return wallet.balance;
   }
 
+  /** Credits at most what is left of `maxCoins` for `reason` since `since`.
+   * The no-op wallet update holds the row lock until commit, so concurrent
+   * credits of one user run in turn and each sees the previous total. */
+  async creditWithinLimit(
+    userId: string,
+    amount: number,
+    reason: string,
+    { maxCoins, since }: { maxCoins: number; since: Date },
+  ): Promise<{ credited: number; balance: number }> {
+    return this.prisma.$transaction(async (tx) => {
+      const wallet = await tx.userWallet.upsert({
+        where: { userId },
+        create: { userId },
+        update: { balance: { increment: 0 } },
+      });
+      const { _sum } = await tx.coinTransaction.aggregate({
+        where: { userId, reason, createdAt: { gte: since } },
+        _sum: { amount: true },
+      });
+      const remaining = Math.max(0, maxCoins - (_sum.amount ?? 0));
+      const credited = Math.min(amount, remaining);
+      if (credited <= 0) return { credited: 0, balance: wallet.balance };
+
+      const updated = await tx.userWallet.update({
+        where: { userId },
+        data: { balance: { increment: credited } },
+      });
+      await tx.coinTransaction.create({
+        data: { userId, amount: credited, reason },
+      });
+      return { credited, balance: updated.balance };
+    });
+  }
+
   async debit(userId: string, amount: number, reason: string): Promise<number> {
     if (amount <= 0) return this.getBalance(userId);
     const result = await this.prisma.userWallet.updateMany({

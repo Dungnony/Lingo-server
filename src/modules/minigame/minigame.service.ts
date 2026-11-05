@@ -3,6 +3,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { startOfLocalDayInstant } from '../../common/time.util';
+import type { Env } from '../../config/env.validation';
 import { GameMode, type Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
@@ -28,6 +31,12 @@ const MATCH_PAIRS = 8;
  * tiết từng lượt lật như MC vì việc so khớp đã lộ hết ở phía client ngay
  * lúc tải dữ liệu, nhưng vẫn chặn được trường hợp lộ liễu nhất). */
 const MATCH_MIN_MS_PER_PAIR = 500;
+/** Coins one user can earn from minigames per study day. MATCH scores are
+ * self-reported, so this is what bounds farming; play past it still ranks. */
+export const MINIGAME_DAILY_COIN_LIMIT = 100;
+const COIN_REASON = 'minigame';
+/** Keeps a session reopened long after it started inside the Int32 column. */
+const MAX_RECORDED_DURATION_MS = 86_400_000;
 
 interface StoredQuestion {
   wordId: string;
@@ -79,6 +88,11 @@ function gradeMatch(
   };
 }
 
+function elapsedMs(startedAt: Date, now: Date): number {
+  const elapsed = now.getTime() - startedAt.getTime();
+  return Math.min(Math.max(0, elapsed), MAX_RECORDED_DURATION_MS);
+}
+
 /**
  * 3 minigame — "Dịch tốc độ" (TRANSLATE), "Nghe đoán từ" (LISTENING),
  * "Ghép cặp" (MATCH) — Giai đoạn 1 theo lộ trình trong FEATURES.md: chơi 1
@@ -103,6 +117,7 @@ export class MinigameService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly wallet: WalletService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   async start(userId: string, mode: GameMode = GameMode.TRANSLATE) {
@@ -204,15 +219,21 @@ export class MinigameService {
     return { sessionId: session.id, mode: GameMode.MATCH, cards };
   }
 
-  async finish(userId: string, sessionId: string, dto: FinishMinigameDto) {
+  async finish(
+    userId: string,
+    sessionId: string,
+    dto: FinishMinigameDto,
+    now = new Date(),
+  ) {
     const session = await this.prisma.minigameSession.findUnique({
       where: { id: sessionId },
+      include: { user: { select: { timezone: true } } },
     });
     if (!session || session.userId !== userId) {
       throw new NotFoundException('Không tìm thấy lượt chơi');
     }
 
-    const { durationMs } = dto;
+    const durationMs = elapsedMs(session.startedAt, now);
     const graded =
       session.mode === GameMode.MATCH
         ? gradeMatch(dto.mistakes ?? 0, durationMs)
@@ -225,12 +246,25 @@ export class MinigameService {
     await this.closeSession(sessionId, { score, totalAsked, durationMs });
 
     // 1 xu / câu đúng — đơn giản, minh bạch cho giai đoạn kiểm chứng gameplay.
-    const balance = await this.wallet.credit(userId, score, 'minigame');
+    const { credited, balance } = await this.wallet.creditWithinLimit(
+      userId,
+      score,
+      COIN_REASON,
+      {
+        maxCoins: MINIGAME_DAILY_COIN_LIMIT,
+        since: startOfLocalDayInstant(
+          now,
+          session.user.timezone,
+          this.config.get('STREAK_DAY_CUTOFF_HOUR', { infer: true }),
+        ),
+      },
+    );
 
     return {
       score,
       totalAsked,
-      coinsEarned: score,
+      coinsEarned: credited,
+      coinLimitReached: credited < score,
       balance,
     };
   }

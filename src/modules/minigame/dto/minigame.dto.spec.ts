@@ -8,7 +8,6 @@ const WORD_ID = '3f2b8c1e-6a4d-4e9b-8f7a-1c2d3e4f5a6b';
 function errorsFor(answerCount: number) {
   return validate(
     plainToInstance(FinishMinigameDto, {
-      durationMs: 1000,
       answers: Array.from({ length: answerCount }, () => ({
         wordId: WORD_ID,
         chosenIndex: 0,

@@ -37,10 +37,6 @@ export class FinishMinigameDto {
   @IsInt()
   @Min(0)
   mistakes?: number;
-
-  @IsInt()
-  @Min(0)
-  durationMs!: number;
 }
 
 export class LeaderboardQueryDto {
