@@ -70,4 +70,70 @@ export class WordsService {
     if (!word) throw new NotFoundException('Chưa có dữ liệu từ vựng');
     return word;
   }
+
+  /** Tra nhanh 1 từ tiếng Anh được bấm trực tiếp từ phụ đề video hoặc câu ví dụ
+   * ngữ pháp — tự thử cả dạng gốc (bỏ -s/-es/-ed/-ing/-ly) nếu từ chia trong
+   * câu không khớp nguyên văn. */
+  async lookup(raw?: string) {
+    const cleaned = (raw ?? '').toLowerCase().replace(/^[^a-z]+|[^a-z]+$/g, '');
+    if (!cleaned || cleaned.length > 60) return { word: null };
+
+    const candidates = lookupCandidates(cleaned);
+    const rows = await this.prisma.word.findMany({
+      where: {
+        OR: candidates.map((c) => ({
+          word: { equals: c, mode: 'insensitive' as const },
+        })),
+      },
+      include: { examples: { orderBy: { orderIndex: 'asc' } } },
+      orderBy: [{ level: 'asc' }, { frequencyRank: 'asc' }],
+    });
+    if (rows.length === 0) return { word: null };
+
+    for (const candidate of candidates) {
+      const hit = rows.find((r) => r.word.toLowerCase() === candidate);
+      if (hit) return { word: hit };
+    }
+    return { word: rows[0] };
+  }
+}
+
+export function lookupCandidates(word: string): string[] {
+  const out = new Set<string>([word]);
+  if (word.endsWith('ies') && word.length > 4) {
+    out.add(`${word.slice(0, -3)}y`);
+  }
+  if (word.endsWith('es') && word.length > 3) {
+    out.add(word.slice(0, -2));
+    out.add(word.slice(0, -1));
+  }
+  if (word.endsWith('s') && !word.endsWith('ss') && word.length > 2) {
+    out.add(word.slice(0, -1));
+  }
+  if (word.endsWith('ied') && word.length > 4) {
+    out.add(`${word.slice(0, -3)}y`);
+  }
+  if (word.endsWith('ed') && word.length > 3) {
+    const stem = word.slice(0, -2);
+    out.add(stem);
+    out.add(word.slice(0, -1));
+    if (stem.length >= 3 && stem[stem.length - 1] === stem[stem.length - 2]) {
+      out.add(stem.slice(0, -1));
+    }
+  }
+  if (word.endsWith('ing') && word.length > 4) {
+    const stem = word.slice(0, -3);
+    out.add(stem);
+    out.add(`${stem}e`);
+    if (stem.length >= 3 && stem[stem.length - 1] === stem[stem.length - 2]) {
+      out.add(stem.slice(0, -1));
+    }
+  }
+  if (word.endsWith('ly') && word.length > 4) {
+    out.add(word.slice(0, -2));
+    if (word.endsWith('ily') && word.length > 5) {
+      out.add(`${word.slice(0, -3)}y`);
+    }
+  }
+  return [...out];
 }
