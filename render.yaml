@@ -33,14 +33,20 @@ services:
         generateValue: true
       - key: JWT_REFRESH_SECRET
         generateValue: true
-      # Điền trên Render Dashboard sau khi tạo project:
       - key: APP_URL
-        sync: false
+        value: https://lingo-server.onrender.com
       - key: FRONTEND_URL
-        sync: false
+        value: https://lingo-client.vercel.app,https://lingo-client-dungntptitt-8448s-projects.vercel.app
+      - key: GOOGLE_CLIENT_ID
+        value: 523997367565-9fv1bv70cefrmsakg2tp4eifnvjo4su6.apps.googleusercontent.com
+      - key: VAPID_PUBLIC_KEY
+        value: BAN0eM8UO87LomPzbUDwSvC5C1nxuInllyddAOLbITXAZ9D05e26y9BAL22fiVXQ6OtyH1muTB2hDHKvEpNOnt4
+      - key: VAPID_SUBJECT
+        value: mailto:nguyendungsenpai109@gmail.com
+      # Điền trên Render Dashboard khi tạo Blueprint (không lưu secret lên Git):
       - key: GEMINI_API_KEY
         sync: false
-      - key: GOOGLE_CLIENT_ID
+      - key: VAPID_PRIVATE_KEY
         sync: false
 
 databases:
