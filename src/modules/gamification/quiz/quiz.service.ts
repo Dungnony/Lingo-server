@@ -76,14 +76,35 @@ export class QuizService {
 
     const uniq = new Map(pool.map((w) => [w.id, w]));
     pool = [...uniq.values()];
-    if (pool.length < 4) {
+    if (pool.length === 0) {
+      throw new BadRequestException(
+        'Chưa đủ từ có nghĩa tiếng Việt để tạo quiz',
+      );
+    }
+
+    let meaningSource = pool;
+    if (meaningSource.length < 4) {
+      const extra = await this.prisma.word.findMany({
+        where: {
+          ...(dto.level ? { level: dto.level } : {}),
+          meaningVi: { not: null },
+        },
+        orderBy: { frequencyRank: 'asc' },
+        take: 24,
+      });
+      meaningSource = [...pool, ...extra];
+    }
+
+    const allMeanings = [
+      ...new Set(meaningSource.map((w) => w.meaningVi!).filter(Boolean)),
+    ];
+    if (allMeanings.length < 4) {
       throw new BadRequestException(
         'Chưa đủ từ có nghĩa tiếng Việt để tạo quiz',
       );
     }
 
     const picked = shuffle(pool).slice(0, Math.min(size, pool.length));
-    const allMeanings = pool.map((w) => w.meaningVi!).filter(Boolean);
 
     // Phần "nghe" đứng trước phần "đọc" trong bài, giống cấu trúc đề thi thật.
     const listeningCount = Math.round(picked.length * LISTENING_RATIO);
@@ -113,11 +134,15 @@ export class QuizService {
       };
     });
 
+    const answerKey = Object.fromEntries(
+      questions.map((q) => [q.wordId, q.answer]),
+    );
+
     const attempt = await this.prisma.quizAttempt.create({
       data: {
         userId,
         totalQuestions: questions.length,
-        format: { type: 'en_to_vi_mixed_listening' },
+        format: { type: 'en_to_vi_mixed_listening', answerKey },
       },
     });
 
@@ -133,8 +158,57 @@ export class QuizService {
     }
     if (attempt.completedAt) return attempt;
 
-    const correctCount = dto.answers.filter((a) => a.isCorrect).length;
-    const total = dto.answers.length || attempt.totalQuestions || 1;
+    const storedKey =
+      attempt.format &&
+      typeof attempt.format === 'object' &&
+      !Array.isArray(attempt.format) &&
+      'answerKey' in attempt.format &&
+      attempt.format.answerKey &&
+      typeof attempt.format.answerKey === 'object'
+        ? (attempt.format.answerKey as Record<string, string>)
+        : null;
+
+    let answerKey: Record<string, string>;
+    if (storedKey) {
+      answerKey = storedKey;
+    } else {
+      const words = await this.prisma.word.findMany({
+        where: {
+          id: { in: dto.answers.map((a) => a.wordId) },
+          meaningVi: { not: null },
+        },
+        select: { id: true, meaningVi: true },
+      });
+      answerKey = Object.fromEntries(words.map((w) => [w.id, w.meaningVi!]));
+    }
+
+    const seen = new Set<string>();
+    const gradedAnswers = dto.answers
+      .filter((a) => {
+        if (seen.has(a.wordId)) return false;
+        if (storedKey && !(a.wordId in storedKey)) return false;
+        seen.add(a.wordId);
+        return true;
+      })
+      .map((a) => {
+        const expected = answerKey[a.wordId];
+        const isCorrect =
+          expected !== undefined
+            ? a.chosen !== undefined
+              ? a.chosen === expected
+              : Boolean(a.isCorrect)
+            : Boolean(a.isCorrect);
+        return {
+          wordId: a.wordId,
+          isCorrect,
+          chosen: a.chosen ?? null,
+          correct: expected ?? a.correct ?? null,
+          responseMs: a.responseMs ?? null,
+        };
+      });
+
+    const correctCount = gradedAnswers.filter((a) => a.isCorrect).length;
+    const total = attempt.totalQuestions || gradedAnswers.length || 1;
     const scorePct = Math.round((correctCount / total) * 1000) / 10;
 
     const [updated] = await this.prisma.$transaction([
@@ -142,19 +216,15 @@ export class QuizService {
         where: { id: attempt.id },
         data: {
           completedAt: new Date(),
-          totalQuestions: dto.answers.length || attempt.totalQuestions,
+          totalQuestions: total,
           correctCount,
           scorePct,
         },
       }),
       this.prisma.quizAnswer.createMany({
-        data: dto.answers.map((a) => ({
+        data: gradedAnswers.map((a) => ({
           quizAttemptId: attempt.id,
-          wordId: a.wordId,
-          isCorrect: a.isCorrect,
-          chosen: a.chosen ?? null,
-          correct: a.correct ?? null,
-          responseMs: a.responseMs ?? null,
+          ...a,
         })),
       }),
     ]);

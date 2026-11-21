@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsInt,
@@ -58,6 +59,7 @@ export class SubmitQuizDto {
   attemptId!: string;
 
   @IsArray()
+  @ArrayMaxSize(30)
   @ValidateNested({ each: true })
   @Type(() => QuizAnswerItemDto)
   answers!: QuizAnswerItemDto[];

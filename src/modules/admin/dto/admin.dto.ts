@@ -15,6 +15,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { VideoKind } from '../../../generated/prisma/client';
@@ -209,12 +210,13 @@ export class UpdateVideoDto {
   @MaxLength(200)
   titleEn?: string;
 
+  /** `null` clears the video's level. */
   @IsOptional()
-  @Type(() => Number)
+  @ValidateIf((_, value) => value !== null)
   @IsInt()
   @Min(1)
   @Max(LEVEL_COUNT)
-  level?: number;
+  level?: number | null;
 
   @IsOptional()
   @IsEnum(VideoKind)

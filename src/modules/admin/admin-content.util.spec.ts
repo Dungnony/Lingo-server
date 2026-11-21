@@ -76,17 +76,18 @@ describe('admin content helpers', () => {
     expect(data.examples).toBeUndefined();
   });
 
-  it('builds a video update and clears an empty English title', () => {
+  it('builds a video update and clears an empty English title or null level', () => {
     expect(
       videoUpdateData({
         title: ' Tin tức ',
         titleEn: '',
+        level: null,
         kind: VideoKind.NEWS,
       }),
     ).toEqual({
       title: 'Tin tức',
       titleEn: null,
-      level: undefined,
+      level: null,
       kind: VideoKind.NEWS,
     });
   });
