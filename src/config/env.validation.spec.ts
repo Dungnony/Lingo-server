@@ -44,10 +44,24 @@ describe('validateEnv', () => {
 
   it('turns boolean flags into booleans, including their defaults', () => {
     expect(validateEnv(REQUIRED).COOKIE_SECURE).toBe(false);
+    expect(validateEnv(REQUIRED).COOKIE_SAME_SITE).toBe('lax');
     expect(validateEnv(REQUIRED).SEED_RESET).toBe(false);
     expect(
       validateEnv({ ...REQUIRED, COOKIE_SECURE: 'true' }).COOKIE_SECURE,
     ).toBe(true);
+  });
+
+  it('allows optional REDIS_URL, GOOGLE_CLIENT_ID and comma-separated FRONTEND_URL', () => {
+    const env = validateEnv({
+      DATABASE_URL: REQUIRED.DATABASE_URL,
+      JWT_ACCESS_SECRET: REQUIRED.JWT_ACCESS_SECRET,
+      JWT_REFRESH_SECRET: REQUIRED.JWT_REFRESH_SECRET,
+      FRONTEND_URL: 'https://lingo.vercel.app, https://www.lingo.app',
+      COOKIE_SAME_SITE: 'none',
+    });
+    expect(env.REDIS_URL).toBe('');
+    expect(env.GOOGLE_CLIENT_ID).toBe('');
+    expect(env.COOKIE_SAME_SITE).toBe('none');
   });
 
   it('rejects a missing required variable and names it', () => {

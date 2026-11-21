@@ -30,6 +30,8 @@ export class AuthController {
     return {
       domain: this.config.get('COOKIE_DOMAIN', { infer: true }),
       secure: this.config.get('COOKIE_SECURE', { infer: true }),
+      sameSite: this.config.get('COOKIE_SAME_SITE', { infer: true }),
+      apiPrefix: this.config.get('API_PREFIX', { infer: true }),
     };
   }
 

@@ -6,13 +6,20 @@ export const REFRESH_COOKIE = 'lingo_refresh';
 interface CookieConfig {
   domain: string;
   secure: boolean;
+  sameSite?: 'lax' | 'strict' | 'none';
+  apiPrefix?: string;
+}
+
+function refreshPath(cfg: CookieConfig): string {
+  const prefix = (cfg.apiPrefix ?? '/api').replace(/\/+$/, '');
+  return `${prefix.startsWith('/') ? prefix : `/${prefix}`}/auth`;
 }
 
 function base(cfg: CookieConfig): CookieOptions {
   return {
     httpOnly: true,
     secure: cfg.secure,
-    sameSite: 'lax',
+    sameSite: cfg.sameSite ?? 'lax',
     // Bỏ thuộc tính Domain khi là localhost: cookie thành host-only cho host
     // "localhost" (không phụ thuộc cổng) → gửi được từ client :3000 sang API :8000,
     // đồng thời tránh việc trình duyệt từ chối `Domain=localhost`.
@@ -34,12 +41,12 @@ export function setAuthCookies(
   res.cookie(REFRESH_COOKIE, tokens.refreshToken, {
     ...base(cfg),
     // refresh chỉ cần gửi tới nhánh /auth
-    path: '/api/auth',
+    path: refreshPath(cfg),
     maxAge: ttl.refreshMs,
   });
 }
 
 export function clearAuthCookies(res: Response, cfg: CookieConfig): void {
   res.clearCookie(ACCESS_COOKIE, base(cfg));
-  res.clearCookie(REFRESH_COOKIE, { ...base(cfg), path: '/api/auth' });
+  res.clearCookie(REFRESH_COOKIE, { ...base(cfg), path: refreshPath(cfg) });
 }

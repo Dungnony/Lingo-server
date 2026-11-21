@@ -18,11 +18,13 @@ export class HealthController {
     const [db, cache] = await Promise.all([
       this.prisma.$queryRaw`SELECT 1`.then(() => 'up').catch(() => 'down'),
       this.redis.client
-        .ping()
-        .then(() => 'up')
-        .catch(() => 'down'),
+        ? this.redis.client
+            .ping()
+            .then(() => 'up')
+            .catch(() => 'down')
+        : Promise.resolve('disabled'),
     ]);
-    const ok = db === 'up' && cache === 'up';
+    const ok = db === 'up' && (cache === 'up' || cache === 'disabled');
     return {
       status: ok ? 'ok' : 'degraded',
       db,

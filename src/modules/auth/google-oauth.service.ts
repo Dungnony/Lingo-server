@@ -27,6 +27,11 @@ export class GoogleOAuthService {
   }
 
   async verifyIdToken(idToken: string): Promise<GoogleProfile> {
+    if (!this.clientId) {
+      throw new UnauthorizedException(
+        'Đăng nhập Google chưa được cấu hình trên máy chủ',
+      );
+    }
     let payload: TokenPayload | undefined;
     try {
       const ticket = await this.client.verifyIdToken({

@@ -15,10 +15,15 @@ import type { Env } from '../../config/env.validation';
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
-  readonly client: Redis;
+  readonly client: Redis | null;
 
   constructor(config: ConfigService<Env, true>) {
-    this.client = new Redis(config.get('REDIS_URL', { infer: true }), {
+    const url = config.get('REDIS_URL', { infer: true });
+    if (!url) {
+      this.client = null;
+      return;
+    }
+    this.client = new Redis(url, {
       lazyConnect: true,
       maxRetriesPerRequest: 2,
     });
@@ -28,6 +33,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit(): Promise<void> {
+    if (!this.client) return;
     try {
       await this.client.connect();
       this.logger.log('Đã kết nối Redis');
@@ -41,6 +47,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
+    if (!this.client) return;
     await this.client.quit().catch(() => undefined);
   }
 
@@ -50,17 +57,20 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     value: unknown,
     ttlSeconds: number,
   ): Promise<void> {
+    if (!this.client) return;
     await this.client.set(key, JSON.stringify(value), 'EX', ttlSeconds);
   }
 
   /** Đọc giá trị JSON, tự parse. Trả null nếu không có. */
   async getJson<T>(key: string): Promise<T | null> {
+    if (!this.client) return null;
     const raw = await this.client.get(key);
     return raw ? (JSON.parse(raw) as T) : null;
   }
 
   /** Đọc rồi xoá luôn (dùng cho state OAuth — one-time). */
   async takeJson<T>(key: string): Promise<T | null> {
+    if (!this.client) return null;
     const raw = await this.client.getdel(key);
     return raw ? (JSON.parse(raw) as T) : null;
   }

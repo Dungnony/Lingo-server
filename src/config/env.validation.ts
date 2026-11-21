@@ -11,13 +11,24 @@ export const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(8000),
   API_PREFIX: z.string().default('/api'),
   APP_URL: z.string().url().default('http://localhost:8000'),
-  FRONTEND_URL: z.string().url().default('http://localhost:3000'),
+  FRONTEND_URL: z
+    .string()
+    .default('http://localhost:3000')
+    .refine(
+      (val) =>
+        val
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .every((u) => z.string().url().safeParse(u).success),
+      { message: 'Invalid URL' },
+    ),
   LOG_LEVEL: z
     .enum(['trace', 'debug', 'info', 'warn', 'error'])
     .default('info'),
 
   DATABASE_URL: z.string().url(),
-  REDIS_URL: z.string().url(),
+  REDIS_URL: z.union([z.string().url(), z.literal('')]).default(''),
 
   JWT_ACCESS_SECRET: z.string().min(16),
   JWT_ACCESS_TTL: z.string().default('15m'),
@@ -28,9 +39,10 @@ export const envSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  COOKIE_SAME_SITE: z.enum(['lax', 'strict', 'none']).default('lax'),
 
   // Chỉ cần Client ID (công khai) — luồng verify id_token không dùng client secret.
-  GOOGLE_CLIENT_ID: z.string().min(1),
+  GOOGLE_CLIENT_ID: z.string().default(''),
 
   MAIL_HOST: z.string().default(''),
   MAIL_PORT: z.coerce.number().int().default(587),

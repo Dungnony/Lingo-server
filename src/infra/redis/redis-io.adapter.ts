@@ -17,11 +17,31 @@ import { Server, type ServerOptions } from 'socket.io';
 export class RedisIoAdapter extends IoAdapter {
   private static readonly logger = new Logger(RedisIoAdapter.name);
   private adapterConstructor: ReturnType<typeof createAdapter> | null = null;
+  private allowedOrigins: string[] | string = true as unknown as string;
+
+  setAllowedOrigins(origins: string[] | string): void {
+    this.allowedOrigins = origins;
+  }
 
   async connectToRedis(redisUrl: string): Promise<void> {
+    if (!redisUrl) {
+      RedisIoAdapter.logger.log(
+        'REDIS_URL để trống — dùng WebSocket adapter bộ nhớ trong (1 instance)',
+      );
+      return;
+    }
     try {
-      const pubClient = new Redis(redisUrl, { lazyConnect: true });
+      const pubClient = new Redis(redisUrl, {
+        lazyConnect: true,
+        maxRetriesPerRequest: 2,
+      });
       const subClient = pubClient.duplicate();
+      pubClient.on('error', (err) =>
+        RedisIoAdapter.logger.error(`Lỗi Redis pubClient: ${err.message}`),
+      );
+      subClient.on('error', (err) =>
+        RedisIoAdapter.logger.error(`Lỗi Redis subClient: ${err.message}`),
+      );
       await Promise.all([pubClient.connect(), subClient.connect()]);
       this.adapterConstructor = createAdapter(pubClient, subClient);
       RedisIoAdapter.logger.log(
@@ -37,7 +57,14 @@ export class RedisIoAdapter extends IoAdapter {
   }
 
   createIOServer(port: number, options?: ServerOptions): Server {
-    const server = super.createIOServer(port, options) as Server;
+    const mergedOptions: ServerOptions = {
+      ...options,
+      cors: {
+        origin: this.allowedOrigins,
+        credentials: true,
+      },
+    } as ServerOptions;
+    const server = super.createIOServer(port, mergedOptions) as Server;
     if (this.adapterConstructor) server.adapter(this.adapterConstructor);
     return server;
   }

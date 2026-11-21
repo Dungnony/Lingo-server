@@ -15,9 +15,18 @@ async function bootstrap(): Promise<void> {
   const config = app.get<ConfigService<Env, true>>(ConfigService);
   const trustProxyHops = config.get('TRUST_PROXY_HOPS', { infer: true });
   if (trustProxyHops > 0) app.set('trust proxy', trustProxyHops);
+
+  const rawOrigins = config
+    .get('FRONTEND_URL', { infer: true })
+    .split(',')
+    .map((s) => s.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+  const allowedOrigins = rawOrigins.length === 1 ? rawOrigins[0] : rawOrigins;
+
   // WebSocket (NotificationsGateway, tin nhắn realtime) chạy chung cổng HTTP
   // — gắn Redis adapter để pub/sub được xuyên suốt khi chạy nhiều instance.
   const redisIoAdapter = new RedisIoAdapter(app);
+  redisIoAdapter.setAllowedOrigins(allowedOrigins);
   await redisIoAdapter.connectToRedis(config.get('REDIS_URL', { infer: true }));
   app.useWebSocketAdapter(redisIoAdapter);
 
@@ -34,7 +43,7 @@ async function bootstrap(): Promise<void> {
   );
   app.use(cookieParser());
   app.enableCors({
-    origin: config.get('FRONTEND_URL', { infer: true }),
+    origin: allowedOrigins,
     credentials: true,
   });
   app.useGlobalPipes(
