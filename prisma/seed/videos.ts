@@ -14,45 +14,45 @@ interface SeedVideo {
 
 const SAMPLE_VIDEOS: SeedVideo[] = [
   {
-    youtubeId: 'M7lc1UVf-VE',
-    title: 'Giao tiếp hàng ngày: Tự giới thiệu bản thân thật tự nhiên',
-    titleEn: 'Daily English: Introducing Yourself Naturally',
+    youtubeId: 'UNP03fDSj1U',
+    title: 'Thử một điều mới trong 30 ngày — Matt Cutts (TED)',
+    titleEn: 'Try Something New for 30 Days — TED',
     description:
-      'Mẫu hội thoại ngắn giúp người mới bắt đầu làm quen với cách chào hỏi, giới thiệu công việc và sở thích bằng tiếng Anh tự nhiên.',
-    level: 1,
-    kind: VideoKind.DIALOGUE,
-    author: 'Lingo English Studio',
+      'Bài nói ngắn gọn, dễ nghe của kỹ sư Google Matt Cutts về cách biến những mục tiêu lớn thành thử thách 30 ngày thực tế.',
+    level: 2,
+    kind: VideoKind.PODCAST,
+    author: 'TED · Matt Cutts',
     sortOrder: 1,
     lines: [
       {
-        startMs: 1000,
-        en: 'Hi everyone, welcome back to our daily English practice.',
-        vi: 'Chào mọi người, chào mừng quay lại với buổi luyện tiếng Anh hàng ngày của chúng ta.',
+        startMs: 12000,
+        en: 'A few years ago, I felt like I was stuck in a rut.',
+        vi: 'Vài năm trước, tôi cảm thấy mình đang bị dậm chân tại chỗ.',
       },
       {
-        startMs: 5500,
-        en: 'Today we will learn how to introduce yourself in a friendly way.',
-        vi: 'Hôm nay chúng ta sẽ học cách tự giới thiệu bản thân một cách thân thiện.',
+        startMs: 17000,
+        en: 'So I decided to follow in the footsteps of the great American philosopher, Morgan Spurlock.',
+        vi: 'Vì vậy tôi quyết định nối gót triết gia người Mỹ Morgan Spurlock.',
       },
       {
-        startMs: 10500,
-        en: 'My name is Anna, and I work as a software designer.',
-        vi: 'Tên mình là Anna, và mình làm nghề thiết kế phần mềm.',
-      },
-      {
-        startMs: 15500,
-        en: 'In my free time, I enjoy reading books and cooking simple meals.',
-        vi: 'Vào thời gian rảnh, mình thích đọc sách và nấu những bữa ăn đơn giản.',
-      },
-      {
-        startMs: 21000,
-        en: 'I started learning English because I want to travel and make new friends.',
-        vi: 'Mình bắt đầu học tiếng Anh vì muốn đi du lịch và kết thêm nhiều bạn mới.',
+        startMs: 22000,
+        en: 'And try something new for 30 days. The idea is actually pretty simple.',
+        vi: 'Và thử làm một điều mới mẻ trong suốt 30 ngày. Ý tưởng thực ra rất đơn giản.',
       },
       {
         startMs: 27000,
-        en: 'Now it is your turn to share a few sentences about yourself.',
-        vi: 'Bây giờ đến lượt bạn chia sẻ vài câu về bản thân mình nhé.',
+        en: 'Think about something you have always wanted to add to your life and try it for the next 30 days.',
+        vi: 'Hãy nghĩ về một điều bạn luôn muốn thêm vào cuộc sống và thử thực hiện nó trong 30 ngày tới.',
+      },
+      {
+        startMs: 34000,
+        en: 'It turns out 30 days is just about the right amount of time to add a new habit.',
+        vi: 'Hoá ra 30 ngày là khoảng thời gian vừa vặn để hình thành một thói quen mới.',
+      },
+      {
+        startMs: 43000,
+        en: 'I also noticed that as I started to do more and harder 30-day challenges, my self-confidence grew.',
+        vi: 'Tôi cũng nhận thấy khi bắt đầu thực hiện nhiều thử thách 30 ngày khó hơn, sự tự tin của tôi tăng lên rõ rệt.',
       },
     ],
   },
