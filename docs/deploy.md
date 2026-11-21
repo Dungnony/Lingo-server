@@ -1,4 +1,52 @@
-# Triển khai lingo-server lên VPS
+# Triển khai Lingo (PaaS: Render/Railway + Vercel, hoặc VPS Linux)
+
+Tài liệu này hướng dẫn 2 cách triển khai:
+1. **PaaS miễn phí / Cloud (Khuyến nghị để chạy nhanh):** Server + PostgreSQL trên **Render** (hoặc **Railway**), Client trên **Vercel**.
+2. **VPS Linux tự quản lý:** Chạy bằng PM2 + Docker Postgres/Redis + CI/CD GitHub Actions.
+
+---
+
+## Cách 1: Deploy lên Render / Railway (Server) + Vercel (Client)
+
+### Bước 1: Deploy `lingo-server` lên Render (hoặc Railway)
+
+Repo đã có sẵn [`render.yaml`](../render.yaml) và [`Dockerfile`](../Dockerfile).
+
+**Với Render (dùng Blueprint tự động tạo cả Web Service + PostgreSQL):**
+1. Đẩy code `Lingo-server` lên GitHub (`https://github.com/Dungnony/Lingo-server`).
+2. Vào **Render Dashboard** → **New +** → **Blueprint** → chọn repo `Lingo-server`.
+3. Render sẽ tự tạo database `lingo-db` và web service `lingo-server` cùng các biến `COOKIE_SAME_SITE=none`, `COOKIE_SECURE=true`, `COOKIE_DOMAIN=""`, `TRUST_PROXY_HOPS=1`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`.
+4. Điền các biến còn lại trên giao diện Render:
+   - `APP_URL`: URL Render cấp cho service (vd `https://lingo-server.onrender.com`)
+   - `FRONTEND_URL`: URL Vercel của client (vd `https://lingo-client.vercel.app` — có thể điền nhiều URL cách nhau bằng dấu phẩy `,`)
+   - `GEMINI_API_KEY`: API key Gemini (để dùng trợ lý AI và dữ liệu từ vựng)
+   - `GOOGLE_CLIENT_ID`: Google OAuth Client ID (nếu bật đăng nhập Google; có thể để trống)
+5. Sau khi service chạy lần đầu, mở tab **Shell** trên Render (hoặc chạy từ máy local trỏ `DATABASE_URL` vào External Database URL của Render) để nạp từ vựng một lần duy nhất:
+   ```bash
+   npm run db:seed
+   ```
+
+> **Lưu ý về Cookie khác tên miền (Vercel + Render/Railway):**
+> Vì `*.vercel.app` và `*.onrender.com` khác root domain, bắt buộc cấu hình trên server:
+> - `COOKIE_DOMAIN=` *(để trống)*
+> - `COOKIE_SECURE=true`
+> - `COOKIE_SAME_SITE=none`
+> - `REDIS_URL=` *(có thể để trống khi chạy 1 instance; server tự dùng WebSocket adapter bộ nhớ trong)*
+
+### Bước 2: Deploy `lingo-client` lên Vercel
+
+1. Đẩy code `Lingo-client` lên GitHub (`https://github.com/Dungnony/Lingo-client`).
+2. Vào **Vercel Dashboard** → **Add New...** → **Project** → Import repo `Lingo-client`.
+3. Trong mục **Environment Variables**, thêm:
+   - `NEXT_PUBLIC_API_URL`: `https://<ten-service-cua-ban>.onrender.com/api` (nhớ có `/api` ở cuối)
+   - `NEXT_PUBLIC_SITE_URL`: `https://<ten-project-cua-ban>.vercel.app`
+   - `NEXT_PUBLIC_APP_NAME`: `Lingo`
+   - `NEXT_PUBLIC_GOOGLE_CLIENT_ID`: trùng với `GOOGLE_CLIENT_ID` bên server (nếu dùng đăng nhập Google)
+4. Bấm **Deploy**. Sau khi Vercel cấp domain chính thức, kiểm tra lại biến `FRONTEND_URL` bên Render đã khớp đúng domain Vercel chưa (không có dấu `/` ở cuối).
+
+---
+
+## Cách 2: Triển khai `lingo-server` lên VPS Linux
 
 Hướng dẫn chạy API trên một VPS Linux bằng PM2, kèm CI/CD tự deploy khi push lên `main`.
 

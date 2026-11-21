@@ -1,0 +1,50 @@
+# Render Blueprint — Triển khai tự động Lingo API + PostgreSQL trên Render.com
+# Hướng dẫn: Vào Render Dashboard -> New -> Blueprint -> Chọn repo Lingo-server.
+services:
+  - type: web
+    name: lingo-server
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
+    startCommand: npm run start:prod
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8000
+      - key: API_PREFIX
+        value: /api
+      - key: TRUST_PROXY_HOPS
+        value: 1
+      # Khi Client chạy trên Vercel (*.vercel.app) và API trên Render (*.onrender.com):
+      # Để trống COOKIE_DOMAIN, bật COOKIE_SECURE=true và COOKIE_SAME_SITE=none.
+      - key: COOKIE_DOMAIN
+        value: ""
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_SAME_SITE
+        value: none
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lingo-db
+          property: connectionString
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      # Điền trên Render Dashboard sau khi tạo project:
+      - key: APP_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+
+databases:
+  - name: lingo-db
+    plan: free
+    databaseName: lingo
+    user: lingo
