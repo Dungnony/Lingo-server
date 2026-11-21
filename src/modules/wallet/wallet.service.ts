@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { isoDateToUtcDate, localStudyDate } from '../../common/time.util';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import {
   MAX_STREAK_FREEZE,
@@ -8,6 +9,8 @@ import {
 /** Giá lá chắn streak mua bằng xu — sink đầu tiên cho ví xu, tái dùng đúng
  * cơ chế streak freeze đã có (không tạo mục tiêu tiêu tiền mới). */
 const STREAK_FREEZE_PRICE = 300;
+export const AI_QUOTA_PACK_PRICE = 100;
+export const AI_QUOTA_PACK_AMOUNT = 10;
 /** Xu thưởng cho hoạt động ĐẦU TIÊN mỗi ngày (điểm danh) — xem WalletListener. */
 export const DAILY_CHECKIN_REWARD = 5;
 
@@ -130,5 +133,43 @@ export class WalletService {
       );
     }
     return { balance, price: STREAK_FREEZE_PRICE };
+  }
+
+  /** Mua thêm lượt hỏi trợ lý AI trong ngày (giảm bộ đếm đã dùng hôm nay). */
+  async buyAssistantQuota(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { timezone: true },
+    });
+    if (!user) throw new BadRequestException('Không tìm thấy người dùng');
+
+    const localDate = isoDateToUtcDate(
+      localStudyDate(new Date(), user.timezone, 3),
+    );
+    const usage = await this.prisma.assistantDailyUsage.findUnique({
+      where: { userId_localDate: { userId, localDate } },
+    });
+    if (!usage || usage.count <= 0) {
+      throw new BadRequestException(
+        'Bạn vẫn còn nguyên lượt hỏi trợ lý AI miễn phí hôm nay, chưa cần mua thêm',
+      );
+    }
+
+    const addedQuestions = Math.min(usage.count, AI_QUOTA_PACK_AMOUNT);
+    const balance = await this.debit(
+      userId,
+      AI_QUOTA_PACK_PRICE,
+      'buy_assistant_quota',
+    );
+    await this.prisma.assistantDailyUsage.update({
+      where: { userId_localDate: { userId, localDate } },
+      data: { count: Math.max(0, usage.count - addedQuestions) },
+    });
+
+    return {
+      balance,
+      price: AI_QUOTA_PACK_PRICE,
+      addedQuestions,
+    };
   }
 }

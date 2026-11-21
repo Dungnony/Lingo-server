@@ -24,4 +24,9 @@ export class WalletController {
   buyStreakFreeze(@CurrentUser() user: AuthUser) {
     return this.wallet.buyStreakFreeze(user.id);
   }
+
+  @Post('buy/assistant-quota')
+  buyAssistantQuota(@CurrentUser() user: AuthUser) {
+    return this.wallet.buyAssistantQuota(user.id);
+  }
 }

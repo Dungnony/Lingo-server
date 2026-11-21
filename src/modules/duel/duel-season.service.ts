@@ -46,6 +46,67 @@ export class DuelSeasonService {
     };
   }
 
+  /** Lịch sử các mùa giải đã kết thúc kèm top 5 và thứ hạng của chính user. */
+  async getSeasonHistory(userId: string) {
+    const seasons = await this.prisma.duelSeason.findMany({
+      where: { endedAt: { not: null } },
+      orderBy: { number: 'desc' },
+      take: 6,
+      include: {
+        results: {
+          orderBy: { rank: 'asc' },
+          take: 5,
+          include: {
+            user: {
+              select: { id: true, displayName: true, avatarUrl: true },
+            },
+          },
+        },
+      },
+    });
+    if (seasons.length === 0) return [];
+
+    const myResults = await this.prisma.duelSeasonResult.findMany({
+      where: {
+        userId,
+        seasonId: { in: seasons.map((s) => s.id) },
+      },
+    });
+    const myBySeason = new Map(myResults.map((r) => [r.seasonId, r]));
+
+    return seasons.map((s) => {
+      const me = myBySeason.get(s.id);
+      return {
+        number: s.number,
+        startedAt: s.startedAt,
+        endedAt: s.endedAt,
+        topPlayers: s.results.map((r) => ({
+          rank: r.rank,
+          userId: r.userId,
+          displayName: r.user.displayName,
+          avatarUrl: r.user.avatarUrl,
+          finalElo: r.finalElo,
+          tier: r.tier,
+          wins: r.wins,
+          losses: r.losses,
+          draws: r.draws,
+          coinsAwarded: r.coinsAwarded,
+        })),
+        me: me
+          ? {
+              rank: me.rank,
+              finalElo: me.finalElo,
+              tier: me.tier,
+              wins: me.wins,
+              losses: me.losses,
+              draws: me.draws,
+              coinsAwarded: me.coinsAwarded,
+            }
+          : null,
+      };
+    });
+  }
+
   /** Chạy mỗi ngày — chỉ THẬT SỰ rollover khi khoá tháng đã đổi, nên gọi lại
    * nhiều lần trong cùng 1 tháng vô hại (idempotent theo `number`). */
   @Cron(CronExpression.EVERY_DAY_AT_1AM)

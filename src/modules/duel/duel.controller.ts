@@ -30,6 +30,11 @@ export class DuelController {
     return this.season.getSeasonInfo();
   }
 
+  @Get('seasons/history')
+  getSeasonHistory(@CurrentUser() user: AuthUser) {
+    return this.season.getSeasonHistory(user.id);
+  }
+
   /** Bảng ngưỡng rank + luật riêng của Thách Đấu — nguồn dữ liệu DUY NHẤT
    * để FE hiện bảng chú giải, tránh phải chép tay lại ngưỡng ELO ở client. */
   @Get('rank-tiers')
