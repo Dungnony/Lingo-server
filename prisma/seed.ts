@@ -5,6 +5,7 @@ import { seedAchievements } from './seed/achievements';
 import { seedGrammar } from './seed/grammar';
 import { seedLessons } from './seed/lessons';
 import { refreshLevelTotals, seedLevels } from './seed/levels';
+import { seedVideos } from './seed/videos';
 import { loadWordSeed, seedWords } from './seed/words';
 
 const prisma = new PrismaClient({
@@ -39,6 +40,7 @@ async function main(): Promise<void> {
   await seedGrammar(prisma, {
     overwrite: process.env.SEED_GRAMMAR_OVERWRITE === 'true',
   });
+  await seedVideos(prisma);
   await refreshLevelTotals(prisma);
   console.log('Xong.');
 }
