@@ -24,20 +24,26 @@ export class FollowsService {
     });
     if (!target) throw new NotFoundException('Không tìm thấy người dùng');
 
-    // upsert: bấm theo dõi nhiều lần vẫn idempotent.
-    await this.prisma.follow.upsert({
+    const existing = await this.prisma.follow.findUnique({
       where: {
         followerId_followingId: { followerId: userId, followingId: targetId },
       },
-      create: { followerId: userId, followingId: targetId },
-      update: {},
     });
+    if (!existing) {
+      await this.prisma.follow.upsert({
+        where: {
+          followerId_followingId: { followerId: userId, followingId: targetId },
+        },
+        create: { followerId: userId, followingId: targetId },
+        update: {},
+      });
 
-    const payload: UserFollowedPayload = {
-      followerId: userId,
-      followingId: targetId,
-    };
-    this.events.emit(AppEvent.UserFollowed, payload);
+      const payload: UserFollowedPayload = {
+        followerId: userId,
+        followingId: targetId,
+      };
+      this.events.emit(AppEvent.UserFollowed, payload);
+    }
 
     return this.status(userId, targetId);
   }

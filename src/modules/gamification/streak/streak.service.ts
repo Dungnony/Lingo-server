@@ -192,8 +192,12 @@ export class StreakService {
     let active = false;
     if (lastIso === todayIso) {
       active = true;
-    } else if (lastIso && diffCalendarDays(lastIso, todayIso) > 1) {
-      displayCurrent = 0; // đã bỏ lỡ → chuỗi đứt cho tới khi học lại
+    } else if (lastIso) {
+      const gap = diffCalendarDays(lastIso, todayIso);
+      const protectedByFreeze = gap === 2 && streak.streakFreezeCount > 0;
+      if (gap > 1 && !protectedByFreeze) {
+        displayCurrent = 0; // đã bỏ lỡ → chuỗi đứt cho tới khi học lại
+      }
     }
 
     const activity = await this.prisma.userDailyActivity.findUnique({
@@ -227,17 +231,17 @@ export class StreakService {
   /** Cấp 1 "lá chắn" streak (tối đa MAX_STREAK_FREEZE) cho sự kiện đáng
    * thưởng RIÊNG (vd giới thiệu bạn mới, xem ReferralsListener) — tách khỏi
    * mốc 7-ngày tự động ở advanceStreak(). */
-  async grantFreeze(userId: string): Promise<void> {
-    const streak = await this.prisma.userStreak.upsert({
+  async grantFreeze(userId: string): Promise<boolean> {
+    await this.prisma.userStreak.upsert({
       where: { userId },
       create: { userId },
       update: {},
     });
-    if (streak.streakFreezeCount >= MAX_STREAK_FREEZE) return;
-    await this.prisma.userStreak.update({
-      where: { userId },
+    const { count } = await this.prisma.userStreak.updateMany({
+      where: { userId, streakFreezeCount: { lt: MAX_STREAK_FREEZE } },
       data: { streakFreezeCount: { increment: 1 } },
     });
+    return count > 0;
   }
 
   /** Lịch sử hoạt động N ngày gần nhất (cho biểu đồ/lịch). */

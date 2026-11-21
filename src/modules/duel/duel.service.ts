@@ -83,6 +83,7 @@ interface ActiveMatch {
 export class DuelService {
   private readonly logger = new Logger(DuelService.name);
   private queue: QueuedPlayer[] = [];
+  private joining = new Set<string>();
   private matches = new Map<string, ActiveMatch>();
   private playerToMatch = new Map<string, string>();
 
@@ -94,16 +95,24 @@ export class DuelService {
 
   async joinQueue(userId: string): Promise<void> {
     if (this.playerToMatch.has(userId)) return; // đang đấu rồi
+    if (this.joining.has(userId)) return;
     if (this.queue.some((p) => p.id === userId)) return; // đã trong hàng đợi
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, displayName: true, avatarUrl: true },
-    });
-    if (!user) return;
+    this.joining.add(userId);
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, displayName: true, avatarUrl: true },
+      });
+      if (!user) return;
+      if (this.playerToMatch.has(userId)) return;
+      if (this.queue.some((p) => p.id === userId)) return;
 
-    this.queue.push({ ...user, queuedAt: Date.now() });
-    this.tryMatch();
+      this.queue.push({ ...user, queuedAt: Date.now() });
+      this.tryMatch();
+    } finally {
+      this.joining.delete(userId);
+    }
   }
 
   leaveQueue(userId: string): void {
@@ -197,6 +206,11 @@ export class DuelService {
   }
 
   private async startMatch(a: PlayerInfo, b: PlayerInfo): Promise<void> {
+    if (a.id === b.id) return;
+    const matchId = crypto.randomUUID();
+    this.playerToMatch.set(a.id, matchId);
+    this.playerToMatch.set(b.id, matchId);
+
     // Độ khó câu hỏi tăng theo ELO trung bình của 2 người — trận rank cao
     // hơn thì gặp từ hiếm/khó hơn (xem `wordPoolSkipForElo`), thay vì luôn
     // cùng 1 mức độ khó cho mọi trận bất kể trình độ.
@@ -207,12 +221,14 @@ export class DuelService {
     const avgElo = Math.round((ratingA.elo + ratingB.elo) / 2);
     const questions = await this.generateQuestions(avgElo);
     if (questions.length < ROUNDS_PER_MATCH) {
+      this.playerToMatch.delete(a.id);
+      this.playerToMatch.delete(b.id);
       this.logger.warn('Không đủ từ vựng để tạo trận đấu');
       return;
     }
 
     const match: ActiveMatch = {
-      id: crypto.randomUUID(),
+      id: matchId,
       players: [a, b],
       questions,
       round: 0,
@@ -227,8 +243,6 @@ export class DuelService {
       disconnectTimers: new Map(),
     };
     this.matches.set(match.id, match);
-    this.playerToMatch.set(a.id, match.id);
-    this.playerToMatch.set(b.id, match.id);
 
     this.gateway.emitToUser(a.id, 'duel:matched', {
       matchId: match.id,
@@ -278,6 +292,7 @@ export class DuelService {
   submitAnswer(userId: string, matchId: string, chosenIndex: number): void {
     const match = this.matches.get(matchId);
     if (!match) return;
+    if (!match.started || !match.roundTimer) return;
     if (!match.players.some((p) => p.id === userId)) return;
     if (match.roundAnswers.has(userId)) return; // đã trả lời câu này rồi
 
@@ -334,6 +349,13 @@ export class DuelService {
     const match = this.matches.get(matchId);
     if (!match) return;
     const [a, b] = match.players;
+    if (match.roundTimer) clearTimeout(match.roundTimer);
+    if (match.nextRoundTimer) clearTimeout(match.nextRoundTimer);
+    for (const timer of match.disconnectTimers.values()) clearTimeout(timer);
+    this.matches.delete(matchId);
+    this.playerToMatch.delete(a.id);
+    this.playerToMatch.delete(b.id);
+
     const scoreA = match.scores.get(a.id) ?? 0;
     const scoreB = match.scores.get(b.id) ?? 0;
     // Forfeit (rớt mạng quá lâu giữa trận) luôn xử người đó thua, bất kể
@@ -427,11 +449,6 @@ export class DuelService {
       'duel:finished',
       resultFor(b, a, scoreB, scoreA, changeB, ratingB.elo + changeB),
     );
-
-    for (const timer of match.disconnectTimers.values()) clearTimeout(timer);
-    this.matches.delete(matchId);
-    this.playerToMatch.delete(a.id);
-    this.playerToMatch.delete(b.id);
   }
 
   private async getOrCreateRating(userId: string) {
@@ -516,7 +533,9 @@ export class DuelService {
       0,
       Math.min(ROUNDS_PER_MATCH, pool.length),
     );
-    const allMeanings = pool.map((w) => w.meaningVi!).filter(Boolean);
+    const allMeanings = [
+      ...new Set(pool.map((w) => w.meaningVi!).filter(Boolean)),
+    ];
 
     return picked.map((w) => {
       const distractors = shuffle(

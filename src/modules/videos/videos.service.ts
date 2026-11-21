@@ -232,17 +232,26 @@ export class VideosService {
   }
 
   async updateProgress(userId: string, id: string, dto: VideoProgressDto) {
-    const video = await this.prisma.video.findUnique({
-      where: { id },
-      select: { sentenceCount: true },
-    });
+    const [video, existing] = await Promise.all([
+      this.prisma.video.findUnique({
+        where: { id },
+        select: { sentenceCount: true },
+      }),
+      this.prisma.userVideoProgress.findUnique({
+        where: { userId_videoId: { userId, videoId: id } },
+        select: { linesRead: true, completedAt: true },
+      }),
+    ]);
     if (!video) throw new NotFoundException('Không tìm thấy video');
-    const linesRead = Math.min(
-      dto.linesRead ?? dto.lastLineIndex,
-      video.sentenceCount,
+    const linesRead = Math.max(
+      existing?.linesRead ?? 0,
+      Math.min(dto.linesRead ?? dto.lastLineIndex, video.sentenceCount),
     );
     const completed =
-      video.sentenceCount > 0 && linesRead >= video.sentenceCount;
+      Boolean(existing?.completedAt) ||
+      (video.sentenceCount > 0 && linesRead >= video.sentenceCount);
+    const completedAt =
+      existing?.completedAt ?? (completed ? new Date() : null);
     await this.prisma.userVideoProgress.upsert({
       where: { userId_videoId: { userId, videoId: id } },
       create: {
@@ -250,12 +259,12 @@ export class VideosService {
         videoId: id,
         lastLineIndex: dto.lastLineIndex,
         linesRead,
-        completedAt: completed ? new Date() : null,
+        completedAt,
       },
       update: {
         lastLineIndex: dto.lastLineIndex,
         linesRead: { set: linesRead },
-        completedAt: completed ? new Date() : null,
+        completedAt,
       },
     });
     return { ok: true, completed };

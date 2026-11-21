@@ -17,15 +17,19 @@ export class LikesService {
     });
     if (!video) throw new NotFoundException('Không tìm thấy video');
 
-    // upsert: bấm thích nhiều lần vẫn idempotent, không lỗi unique constraint.
-    await this.prisma.videoLike.upsert({
+    const existing = await this.prisma.videoLike.findUnique({
       where: { userId_videoId: { userId, videoId } },
-      create: { userId, videoId },
-      update: {},
     });
+    if (!existing) {
+      await this.prisma.videoLike.upsert({
+        where: { userId_videoId: { userId, videoId } },
+        create: { userId, videoId },
+        update: {},
+      });
 
-    const payload: VideoLikedPayload = { videoId, likerId: userId };
-    this.events.emit(AppEvent.VideoLiked, payload);
+      const payload: VideoLikedPayload = { videoId, likerId: userId };
+      this.events.emit(AppEvent.VideoLiked, payload);
+    }
 
     return this.status(userId, videoId);
   }

@@ -138,7 +138,9 @@ export class MinigameService {
       0,
       Math.min(MINIGAME_QUESTION_COUNT, pool.length),
     );
-    const allMeanings = pool.map((w) => w.meaningVi!).filter(Boolean);
+    const allMeanings = [
+      ...new Set(pool.map((w) => w.meaningVi!).filter(Boolean)),
+    ];
 
     const questions: StoredQuestion[] = picked.map((w) => {
       const distractors = shuffle(
@@ -301,13 +303,22 @@ export class MinigameService {
     const rows = await this.prisma.minigameSession.findMany({
       where: { finishedAt: { gte: since }, mode },
       orderBy: [{ score: 'desc' }, { durationMs: 'asc' }],
-      take: 20,
+      take: 100,
       include: {
         user: { select: { id: true, displayName: true, avatarUrl: true } },
       },
     });
 
-    return rows.map((r, i) => ({
+    const seen = new Set<string>();
+    const uniqueRows = rows
+      .filter((r) => {
+        if (seen.has(r.user.id)) return false;
+        seen.add(r.user.id);
+        return true;
+      })
+      .slice(0, 20);
+
+    return uniqueRows.map((r, i) => ({
       rank: i + 1,
       userId: r.user.id,
       displayName: r.user.displayName,

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import {
+  diffCalendarDays,
   getLocalHour,
   isoDateToUtcDate,
   localStudyDate,
@@ -106,7 +107,13 @@ export class ReminderService {
       select: {
         id: true,
         timezone: true,
-        streak: { select: { currentStreak: true } },
+        streak: {
+          select: {
+            currentStreak: true,
+            lastActiveLocalDate: true,
+            streakFreezeCount: true,
+          },
+        },
       },
     });
     if (users.length === 0) return;
@@ -117,6 +124,14 @@ export class ReminderService {
         if (getLocalHour(now, user.timezone) !== STREAK_RISK_HOUR) return;
 
         const todayIso = localStudyDate(now, user.timezone, cutoffHour);
+        const lastIso = user.streak?.lastActiveLocalDate
+          ? user.streak.lastActiveLocalDate.toISOString().slice(0, 10)
+          : null;
+        if (!lastIso) return;
+        const gap = diffCalendarDays(lastIso, todayIso);
+        const maxGap = (user.streak?.streakFreezeCount ?? 0) > 0 ? 2 : 1;
+        if (gap < 1 || gap > maxGap) return; // đã học hôm nay hoặc chuỗi đã đứt từ trước
+
         const activity = await this.prisma.userDailyActivity.findUnique({
           where: {
             userId_localDate: {

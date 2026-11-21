@@ -169,6 +169,61 @@ export class ReviewService {
         });
       }
 
+      if (word.lessonId && (!existing || (nowLearned && !existing.learnedAt))) {
+        const [lesson, existingLessonProg, startedCount, learnedCount] =
+          await Promise.all([
+            tx.lesson.findUnique({
+              where: { id: word.lessonId },
+              select: { wordCount: true },
+            }),
+            tx.userLessonProgress.findUnique({
+              where: {
+                userId_lessonId: { userId, lessonId: word.lessonId },
+              },
+            }),
+            tx.userWordProgress.count({
+              where: { userId, word: { lessonId: word.lessonId } },
+            }),
+            tx.userWordProgress.count({
+              where: {
+                userId,
+                word: { lessonId: word.lessonId },
+                OR: [
+                  { learnedAt: { not: null } },
+                  {
+                    state: SrsState.REVIEW,
+                    intervalDays: { gte: LEARNED_INTERVAL_DAYS },
+                  },
+                ],
+              },
+            }),
+          ]);
+        if (lesson) {
+          const isCompleted =
+            lesson.wordCount > 0 && startedCount >= lesson.wordCount;
+          const completedAt =
+            existingLessonProg?.completedAt ?? (isCompleted ? now : null);
+          await tx.userLessonProgress.upsert({
+            where: {
+              userId_lessonId: { userId, lessonId: word.lessonId },
+            },
+            create: {
+              userId,
+              lessonId: word.lessonId,
+              totalWords: lesson.wordCount,
+              learnedWords: learnedCount,
+              startedAt: now,
+              completedAt,
+            },
+            update: {
+              totalWords: lesson.wordCount,
+              learnedWords: learnedCount,
+              completedAt,
+            },
+          });
+        }
+      }
+
       return saved;
     });
 

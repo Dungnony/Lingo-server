@@ -122,7 +122,13 @@ export class WalletService {
       STREAK_FREEZE_PRICE,
       'buy_streak_freeze',
     );
-    await this.streak.grantFreeze(userId);
+    const granted = await this.streak.grantFreeze(userId);
+    if (!granted) {
+      await this.credit(userId, STREAK_FREEZE_PRICE, 'refund_streak_freeze');
+      throw new BadRequestException(
+        'Bạn đã có tối đa lá chắn streak, không cần mua thêm',
+      );
+    }
     return { balance, price: STREAK_FREEZE_PRICE };
   }
 }

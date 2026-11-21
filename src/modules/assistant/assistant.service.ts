@@ -605,12 +605,14 @@ export class AssistantService implements OnModuleInit {
     // tay 1ms lệch nhau để đảm bảo đúng thứ tự hiển thị.
     const userCreatedAt = new Date();
     const modelCreatedAt = new Date(userCreatedAt.getTime() + 1);
+    const safeUserMessage = userMessage.slice(0, 4000);
+    const safeReplyText = replyText.slice(0, 4000);
     await this.prisma.$transaction([
       this.prisma.chatMessage.create({
         data: {
           sessionId,
           role: ChatRole.USER,
-          text: userMessage,
+          text: safeUserMessage,
           createdAt: userCreatedAt,
         },
       }),
@@ -618,7 +620,7 @@ export class AssistantService implements OnModuleInit {
         data: {
           sessionId,
           role: ChatRole.MODEL,
-          text: replyText,
+          text: safeReplyText,
           createdAt: modelCreatedAt,
         },
       }),

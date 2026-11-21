@@ -35,7 +35,7 @@ export class GamificationController {
     @CurrentUser() user: AuthUser,
     @Query('days', new DefaultValuePipe(30), ParseIntPipe) days: number,
   ) {
-    return this.streak.history(user.id, Math.min(days, 366));
+    return this.streak.history(user.id, Math.max(1, Math.min(days, 366)));
   }
 
   @Get('achievements')
