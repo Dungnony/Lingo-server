@@ -110,15 +110,19 @@ export class TokenService {
       throw new UnauthorizedException('Refresh token đã hết hạn');
     }
 
-    const next = await this.issueForUser(row.user, ctx, row.familyId);
-    await this.prisma.refreshToken.update({
-      where: { id: row.id },
+    const { count } = await this.prisma.refreshToken.updateMany({
+      where: { id: row.id, revokedAt: null },
       data: {
         revokedAt: new Date(),
         replacedById: null, // giữ đơn giản; đủ để phát hiện reuse
       },
     });
-    return next;
+    if (count === 0) {
+      await this.revokeFamily(row.familyId);
+      throw new UnauthorizedException('Phiên đăng nhập không còn hợp lệ');
+    }
+
+    return this.issueForUser(row.user, ctx, row.familyId);
   }
 
   async revoke(rawToken: string): Promise<void> {

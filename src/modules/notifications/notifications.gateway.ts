@@ -32,7 +32,13 @@ function parseCookieHeader(header: string): Record<string, string> {
     if (idx === -1) continue;
     const key = part.slice(0, idx).trim();
     const value = part.slice(idx + 1).trim();
-    if (key) out[key] = decodeURIComponent(value);
+    if (key) {
+      try {
+        out[key] = decodeURIComponent(value);
+      } catch {
+        out[key] = value;
+      }
+    }
   }
   return out;
 }
@@ -75,7 +81,11 @@ export class NotificationsGateway
    * thua (xem `DuelService.handlePlayerDisconnect()`). */
   handleDisconnect(client: Socket): void {
     const userId = (client.data as SocketData).userId;
-    if (userId) this.duel.handlePlayerDisconnect(userId);
+    if (!userId) return;
+    const room = this.server?.sockets?.adapter?.rooms?.get(roomFor(userId));
+    if (!room || room.size === 0) {
+      this.duel.handlePlayerDisconnect(userId);
+    }
   }
 
   emitToUser(userId: string, event: string, payload: unknown): void {

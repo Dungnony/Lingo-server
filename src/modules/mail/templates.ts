@@ -84,6 +84,15 @@ function statRow(label: string, value: string, last = false): string {
   </tr>`;
 }
 
+function escapeHtml(raw: string): string {
+  return raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export function weeklyDigestHtml(opts: {
   displayName: string;
   daysStudied: number;
@@ -92,9 +101,10 @@ export function weeklyDigestHtml(opts: {
   currentStreak: number;
   appUrl: string;
 }): string {
+  const safeName = escapeHtml(opts.displayName);
   const active = opts.daysStudied > 0;
   const bodyHtml = active
-    ? `Chào ${opts.displayName}! Đây là tổng kết tuần học tiếng Anh của bạn trên Lingo:
+    ? `Chào ${safeName}! Đây là tổng kết tuần học tiếng Anh của bạn trên Lingo:
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0;">
         ${statRow('📅 Số ngày đã học', `${opts.daysStudied}/7 ngày`)}
         ${statRow('📖 Từ đã ôn', String(opts.wordsReviewed))}
@@ -102,7 +112,7 @@ export function weeklyDigestHtml(opts: {
         ${statRow('🔥 Chuỗi ngày hiện tại', `${opts.currentStreak} ngày`, true)}
       </table>
       Tiếp tục giữ nhịp học này nhé!`
-    : `Chào ${opts.displayName}! Tuần này bạn chưa ghi nhận buổi học nào trên Lingo. Chỉ cần vài phút mỗi ngày là đủ để giữ vốn từ vựng không bị quên — quay lại học ngay nhé!`;
+    : `Chào ${safeName}! Tuần này bạn chưa ghi nhận buổi học nào trên Lingo. Chỉ cần vài phút mỗi ngày là đủ để giữ vốn từ vựng không bị quên — quay lại học ngay nhé!`;
 
   return layout({
     heading: active

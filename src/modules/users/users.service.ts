@@ -11,6 +11,7 @@ import {
   type User,
 } from '../../generated/prisma/client';
 import type { Env } from '../../config/env.validation';
+import { isValidTimezone } from '../../common/time.util';
 import { PasswordService } from '../auth/password.service';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import {
@@ -55,6 +56,10 @@ export class UsersService {
     await this.prisma.user.update({
       where: { id },
       data: { passwordHash: hash },
+    });
+    await this.prisma.refreshToken.updateMany({
+      where: { userId: id, revokedAt: null },
+      data: { revokedAt: new Date() },
     });
     return { ok: true };
   }
@@ -236,6 +241,9 @@ export class UsersService {
 
   /** Tạo user kèm settings + streak mặc định trong 1 transaction. */
   async createUser(input: CreateUserInput): Promise<User> {
+    if (input.timezone && !isValidTimezone(input.timezone)) {
+      throw new BadRequestException('Múi giờ không hợp lệ');
+    }
     const defaultTz = this.config.get('DEFAULT_USER_TIMEZONE', { infer: true });
     const newPerDay = this.config.get('SRS_DEFAULT_NEW_PER_DAY', {
       infer: true,
@@ -329,6 +337,9 @@ export class UsersService {
       locale?: string;
     },
   ) {
+    if (data.timezone && !isValidTimezone(data.timezone)) {
+      throw new BadRequestException('Múi giờ không hợp lệ');
+    }
     const user = await this.prisma.user.update({ where: { id }, data });
     // eslint-disable-next-line @typescript-eslint/no-unused-vars -- huỷ passwordHash khỏi kết quả trả về
     const { passwordHash, ...safe } = user;

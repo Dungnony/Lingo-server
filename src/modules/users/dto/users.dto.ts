@@ -2,8 +2,10 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -25,12 +27,16 @@ export class ChangePasswordDto {
 export class UpdateMeDto {
   @IsOptional()
   @IsString()
+  @MinLength(1)
   @MaxLength(80)
   displayName?: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(500)
+  @Matches(/^(https?:\/\/|\/media\/avatars\/)/, {
+    message: 'avatarUrl phải là URL http(s) hoặc đường dẫn avatar nội bộ',
+  })
   avatarUrl?: string;
 
   @IsOptional()
@@ -72,6 +78,7 @@ export class UpdateSettingsDto {
   srsScheduler?: 'sm2' | 'fsrs';
 
   @IsOptional()
+  @IsNumber()
   @Min(0.7)
   @Max(0.99)
   targetRetention?: number;

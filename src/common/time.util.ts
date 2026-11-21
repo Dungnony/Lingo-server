@@ -1,4 +1,14 @@
-import { DateTime } from 'luxon';
+import { DateTime, IANAZone } from 'luxon';
+
+const FALLBACK_TIMEZONE = 'Asia/Ho_Chi_Minh';
+
+export function isValidTimezone(timezone: string): boolean {
+  return Boolean(timezone) && IANAZone.isValidZone(timezone);
+}
+
+function safeZone(timezone: string): string {
+  return isValidTimezone(timezone) ? timezone : FALLBACK_TIMEZONE;
+}
 
 /**
  * "Ngày học" theo timezone user, có tính giờ cắt ngày (cutoffHour).
@@ -11,7 +21,7 @@ export function localStudyDate(
   timezone: string,
   cutoffHour: number,
 ): string {
-  const dt = DateTime.fromJSDate(at, { zone: timezone });
+  const dt = DateTime.fromJSDate(at, { zone: safeZone(timezone) });
   const shifted = dt.hour < cutoffHour ? dt.minus({ days: 1 }) : dt;
   return shifted.toISODate() ?? shifted.toFormat('yyyy-MM-dd');
 }
@@ -34,7 +44,7 @@ export function endOfLocalDay(
   timezone: string,
   cutoffHour: number,
 ): DateTime {
-  const dt = DateTime.fromJSDate(at, { zone: timezone });
+  const dt = DateTime.fromJSDate(at, { zone: safeZone(timezone) });
   const base = dt.hour < cutoffHour ? dt.minus({ days: 1 }) : dt;
   return base.startOf('day').plus({ days: 1, hours: cutoffHour });
 }
@@ -48,19 +58,19 @@ export function startOfLocalDayInstant(
   timezone: string,
   cutoffHour: number,
 ): Date {
-  const dt = DateTime.fromJSDate(at, { zone: timezone });
+  const dt = DateTime.fromJSDate(at, { zone: safeZone(timezone) });
   const base = dt.hour < cutoffHour ? dt.minus({ days: 1 }) : dt;
   return base.startOf('day').plus({ hours: cutoffHour }).toJSDate();
 }
 
 /** Giờ hiện tại (0-23) theo timezone user — so khớp `UserSettings.reminderHour`. */
 export function getLocalHour(at: Date, timezone: string): number {
-  return DateTime.fromJSDate(at, { zone: timezone }).hour;
+  return DateTime.fromJSDate(at, { zone: safeZone(timezone) }).hour;
 }
 
 /** Thứ trong tuần theo timezone user (1 = Thứ Hai .. 7 = Chủ Nhật, chuẩn ISO). */
 export function getLocalWeekday(at: Date, timezone: string): number {
-  return DateTime.fromJSDate(at, { zone: timezone }).weekday;
+  return DateTime.fromJSDate(at, { zone: safeZone(timezone) }).weekday;
 }
 
 /** Lùi/tiến N ngày lịch từ 1 chuỗi ISO date — dùng để dựng khoảng ngày (vd 7

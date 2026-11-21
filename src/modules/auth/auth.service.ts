@@ -160,10 +160,13 @@ export class AuthService {
     if (row.expiresAt.getTime() < Date.now()) {
       throw new BadRequestException('Token đã hết hạn');
     }
-    await this.prisma.verificationToken.update({
-      where: { id: row.id },
+    const { count } = await this.prisma.verificationToken.updateMany({
+      where: { id: row.id, consumedAt: null },
       data: { consumedAt: new Date() },
     });
+    if (count === 0) {
+      throw new BadRequestException('Token không hợp lệ hoặc đã dùng');
+    }
     return row;
   }
 
