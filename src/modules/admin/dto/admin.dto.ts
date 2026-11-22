@@ -7,6 +7,7 @@ import {
   IsBoolean,
   IsBooleanString,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -221,4 +222,15 @@ export class UpdateVideoDto {
   @IsOptional()
   @IsEnum(VideoKind)
   kind?: VideoKind;
+}
+
+export class AdminFeedbackQueryDto {
+  @IsOptional()
+  @IsIn(['OPEN', 'RESOLVED', 'ALL'])
+  status?: 'OPEN' | 'RESOLVED' | 'ALL';
+}
+
+export class UpdateFeedbackStatusDto {
+  @IsIn(['OPEN', 'RESOLVED'])
+  status!: 'OPEN' | 'RESOLVED';
 }

@@ -13,11 +13,13 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { AdminService } from './admin.service';
 import {
+  AdminFeedbackQueryDto,
   AdminLevelQueryDto,
   AdminVideoQueryDto,
   AdminWordQueryDto,
   CreateGrammarDto,
   ReviewWordsDto,
+  UpdateFeedbackStatusDto,
   UpdateGrammarDto,
   UpdateVideoDto,
   UpdateWordDto,
@@ -89,5 +91,23 @@ export class AdminController {
     @Body() dto: UpdateVideoDto,
   ) {
     return this.admin.updateVideo(id, dto);
+  }
+
+  @Get('feedback')
+  listFeedback(@Query() q: AdminFeedbackQueryDto) {
+    return this.admin.listFeedback(q.status);
+  }
+
+  @Patch('feedback/:id')
+  updateFeedbackStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateFeedbackStatusDto,
+  ) {
+    return this.admin.updateFeedbackStatus(id, dto.status);
+  }
+
+  @Delete('feedback/:id')
+  deleteFeedback(@Param('id', ParseUUIDPipe) id: string) {
+    return this.admin.deleteFeedback(id);
   }
 }

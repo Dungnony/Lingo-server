@@ -225,6 +225,62 @@ export class AdminService {
     });
   }
 
+  async listFeedback(status?: 'OPEN' | 'RESOLVED' | 'ALL') {
+    const where: Prisma.SupportFeedbackWhereInput =
+      status && status !== 'ALL' ? { status } : {};
+    const [items, openCount] = await this.prisma.$transaction([
+      this.prisma.supportFeedback.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          topic: true,
+          message: true,
+          status: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+      this.prisma.supportFeedback.count({ where: { status: 'OPEN' } }),
+    ]);
+    return { items, openCount };
+  }
+
+  async updateFeedbackStatus(id: string, status: 'OPEN' | 'RESOLVED') {
+    const existing = await this.prisma.supportFeedback.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('Không tìm thấy góp ý');
+    return this.prisma.supportFeedback.update({
+      where: { id },
+      data: { status },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        topic: true,
+        message: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  }
+
+  async deleteFeedback(id: string) {
+    const existing = await this.prisma.supportFeedback.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('Không tìm thấy góp ý');
+    await this.prisma.supportFeedback.delete({ where: { id } });
+    return { deleted: true };
+  }
+
   private async requireWord(id: string) {
     const word = await this.prisma.word.findUnique({
       where: { id },

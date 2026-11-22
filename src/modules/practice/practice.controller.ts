@@ -3,7 +3,11 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthUser } from '../../common/types';
-import { PracticeStatsQueryDto, RecordAttemptDto } from './dto/practice.dto';
+import {
+  EvaluateSentenceDto,
+  PracticeStatsQueryDto,
+  RecordAttemptDto,
+} from './dto/practice.dto';
 import { PracticeService } from './practice.service';
 
 @ApiTags('practice')
@@ -21,5 +25,14 @@ export class PracticeController {
   @Get('stats')
   stats(@CurrentUser() user: AuthUser, @Query() q: PracticeStatsQueryDto) {
     return this.practice.stats(user.id, q.skill);
+  }
+
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Post('writing/evaluate')
+  evaluateSentence(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: EvaluateSentenceDto,
+  ) {
+    return this.practice.evaluateSentence(user.id, dto);
   }
 }

@@ -4,9 +4,12 @@ import {
   IsEnum,
   IsInt,
   IsOptional,
+  IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
+  MinLength,
 } from 'class-validator';
 
 /** Same upper bound as a flashcard review (`ReviewDto.durationMs`). */
@@ -37,4 +40,14 @@ export class RecordAttemptDto {
 export class PracticeStatsQueryDto {
   @IsEnum(PracticeSkill)
   skill!: PracticeSkill;
+}
+
+export class EvaluateSentenceDto {
+  @IsUUID('4')
+  wordId!: string;
+
+  @IsString()
+  @MinLength(3)
+  @MaxLength(300)
+  sentence!: string;
 }
