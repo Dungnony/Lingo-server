@@ -1,0 +1,17 @@
+name: Keep Render Awake
+
+on:
+  schedule:
+    # Render Free sleeps after 15 minutes of inactivity.
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    name: Ping /api/health
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake or keep lingo-server warm
+        run: |
+          response=$(curl -fsS --max-time 60 https://lingo-server-4w6n.onrender.com/api/health)
+          echo "Health response: $response"
